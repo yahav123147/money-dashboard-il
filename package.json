@@ -9,7 +9,9 @@
     "test": "node --test 'scripts/test/*.test.mjs'",
     "sync": "node scripts/financy-sync.mjs && node scripts/cardcom-sync.mjs",
     "sync:cardcom": "node scripts/cardcom-sync.mjs",
-    "demo": "node scripts/demo-seed.mjs"
+    "demo": "node scripts/demo-seed.mjs",
+    "review": "node scripts/review.mjs",
+    "review:snapshot": "node scripts/review.mjs --snapshot-only"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",

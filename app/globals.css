@@ -904,3 +904,22 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 /* grids must never let a long string widen one column at the others' expense */
 .grid-2 > div, .grid-3 > div, .grid-3 .g3-cell, .grid-hero > * { min-width: 0; }
 .panel { min-width: 0; }
+
+/* data quality */
+.q-clean { font-size: 0.86rem; color: var(--ink-2); line-height: 1.6; font-weight: 300; }
+.q-list { list-style: none; margin: 0; padding: 0; }
+.q-item { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.q-item:last-child { border-bottom: none; }
+.q-top { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.q-title { font-size: 0.9rem; font-weight: 500; color: var(--ink); }
+.q-area { margin-inline-start: auto; font-size: 0.7rem; color: var(--ink-3); }
+.q-text { font-size: 0.84rem; color: var(--ink-2); line-height: 1.55; }
+.q-action { font-size: 0.76rem; color: var(--gold); margin-top: 4px; }
+.q-action::before { content: '← '; }
+.sev-info .q-action { color: var(--ink-3); }
+.q-foot { font-size: 0.72rem; color: var(--ink-3); margin: 12px 0 0; }
+.review { white-space: pre-wrap; font-size: 0.88rem; line-height: 1.7; color: var(--ink); font-weight: 300; }
+.review h3 { font-size: 0.95rem; font-weight: 500; margin: 14px 0 4px; }
+.review-meta { font-size: 0.72rem; color: var(--ink-3); margin-top: 10px; }
+.review-empty { font-size: 0.86rem; color: var(--ink-2); line-height: 1.6; font-weight: 300; }
+.review-empty code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; background: var(--line-soft); padding: 1px 6px; border-radius: 4px; }

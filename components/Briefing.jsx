@@ -22,6 +22,7 @@ export function StatTiles({ b }) {
           {n.endProjected == null ? 'אין תחזית עדיין'
             : dip && dip.amount < 0 ? `בדרך: ירידה ל-${fmtIls(dip.amount)} ב${hebDay(dip.date)}`
             : dip && dip.belowWarn ? `בדרך: יורד עד ${fmtIls(dip.amount)} ב${hebDay(dip.date)}`
+            : n.quality && n.quality.confidence !== 'high' ? n.quality.confidenceText
             : 'לפי ההוצאות הקבועות והתקבולים הצפויים'}
         </span>
       </div>
