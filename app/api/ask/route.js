@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDb, israelToday } from '@/lib/queries';
 import { dataPack, runReadOnly, parseReply, SCHEMA_DOC } from '../../../scripts/lib/ask.mjs';
-import { preflight, runClaude, INJECTION_NOTE } from '../../../scripts/lib/agent-run.mjs';
+import { preflight, runClaudeAsync, INJECTION_NOTE } from '../../../scripts/lib/agent-run.mjs';
+
+// One question at a time per server: each is a model call, and two in
+// flight would only queue behind each other at the CLI anyway.
+let inFlight = false;
 export const dynamic = 'force-dynamic';
 
 const DB_PATH = process.env.MONEY_DB_PATH || join(process.cwd(), 'data', 'money.db');
@@ -16,6 +20,12 @@ export async function POST(req) {
   if (!question) return Response.json({ error: 'מה השאלה?' }, { status: 400 });
   const history = Array.isArray(body.history) ? body.history.slice(-6).map((h) => ({ role: h.role === 'assistant' ? 'assistant' : 'user', text: String(h.text || '').slice(0, 1500) })) : [];
 
+  if (inFlight) return Response.json({ error: 'שאלה אחרת עדיין בטיפול; עוד רגע' }, { status: 429 });
+  inFlight = true;
+  try { return await answer(question, history); } finally { inFlight = false; }
+}
+
+async function answer(question, history) {
   const errs = [];
   const origErr = console.error; console.error = (...a) => errs.push(a.join(' '));
   let ok; try { ok = preflight([]); } finally { console.error = origErr; }
@@ -28,7 +38,7 @@ export async function POST(req) {
     const skill = readFileSync(join(process.cwd(), '.claude', 'skills', 'ask', 'SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n/, '');
     const convo = history.map((h) => `${h.role === 'user' ? 'בעל העסק' : 'אתה'}: ${h.text}`).join('\n');
     const base = `${skill}\n\n${INJECTION_NOTE}\n\n## הסכמה\n${SCHEMA_DOC}\n\n## dataPack\n\`\`\`json\n${JSON.stringify(pack)}\n\`\`\`\n${convo ? `\n## השיחה עד כה\n${convo}\n` : ''}\n## השאלה\n${question}`;
-    const first = runClaude(base, { timeoutMs: 3 * 60 * 1000 });
+    const first = await runClaudeAsync(base);
     if (!first.ok) return Response.json({ error: first.error }, { status: 502 });
     let reply = parseReply(first.text);
     let sql = null; let rows = null;
@@ -37,7 +47,7 @@ export async function POST(req) {
       let result;
       try { result = runReadOnly(DB_PATH, sql); rows = result.rows; }
       catch (e) { result = { error: String(e.message || e) }; }
-      const second = runClaude(`${base}\n\n## השאילתה שביקשת\n\`\`\`sql\n${sql}\n\`\`\`\n## התוצאה\n\`\`\`json\n${JSON.stringify(result).slice(0, 60000)}\n\`\`\`\n\nעכשיו ענה לשאלה. בלי בלוק SQL נוסף.`, { timeoutMs: 3 * 60 * 1000 });
+      const second = await runClaudeAsync(`${base}\n\n## השאילתה שביקשת\n\`\`\`sql\n${sql}\n\`\`\`\n## התוצאה\n\`\`\`json\n${JSON.stringify(result).slice(0, 60000)}\n\`\`\`\n\nעכשיו ענה לשאלה. בלי בלוק SQL נוסף.`);
       if (!second.ok) return Response.json({ error: second.error }, { status: 502 });
       reply = parseReply(second.text);
       if (reply.sql) reply = { answer: 'לא הצלחתי לענות מהנתונים שיש לי על השאלה הזאת.' };

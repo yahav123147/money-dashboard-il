@@ -71,7 +71,7 @@ export default function Classify() {
               <div className="cl-actions">
                 <button className="mp-chip on" disabled={busy === p.side + p.counterparty} onClick={() => act('approve', p)}>אשר</button>
                 <button className="mp-chip" disabled={busy === p.side + p.counterparty} onClick={() => act('reject', p)}>לא</button>
-                <span className="cl-rule">חוק קבוע: "{p.match}" ← {p.bucket}</span>
+                <span className="cl-rule">חוק קבוע: כל מוטב שמכיל "{p.match}" ← {p.bucket}{p.alsoMatches?.length ? ` · יחול גם על: ${p.alsoMatches.map((a) => a.name).join(', ')}` : ''}</span>
               </div>
             </li>
           ))}
@@ -92,7 +92,7 @@ export default function Classify() {
           </ul>
         </details>
       ) : null}
-      {d?.ts && pending.length ? <p className="q-foot">הצעות מ-{new Date(d.ts).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} · אישור שומר חוק קבוע במסד ומסווג את התנועות של המוטב</p> : null}
+      {d?.ts && pending.length ? <p className="q-foot">הצעות מ-{new Date(d.ts).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} · אישור שומר חוק קבוע ומסווג מחדש את כל התנועות שתואמות לו, כמו שסנכרון היה עושה</p> : null}
     </section>
   );
 }

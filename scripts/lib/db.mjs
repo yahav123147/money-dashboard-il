@@ -32,6 +32,12 @@ CREATE INDEX IF NOT EXISTS idx_cc_date ON cardcom_sales(date);
 CREATE TABLE IF NOT EXISTS classify_rules (
   side TEXT NOT NULL, match TEXT NOT NULL, bucket TEXT NOT NULL, bucket_group TEXT NOT NULL,
   counterparty TEXT, created_at TEXT, priority INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (side, match));
+CREATE TABLE IF NOT EXISTS classify_proposals (
+  side TEXT NOT NULL, counterparty TEXT NOT NULL, match TEXT, bucket TEXT, bucket_group TEXT, label TEXT,
+  reason TEXT, confidence TEXT, count INTEGER, total REAL, status TEXT NOT NULL DEFAULT 'pending',
+  proposed_at TEXT, decided_at TEXT, reclassified INTEGER, PRIMARY KEY (side, counterparty));
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, agent TEXT, ts TEXT, ok INTEGER, error TEXT, count INTEGER, note TEXT);
 `;
 
 export function openDb(path = DB_PATH) {
@@ -49,12 +55,15 @@ export function openDb(path = DB_PATH) {
   }
   const crCols = db.prepare('PRAGMA table_info(classify_rules)').all().map((c) => c.name);
   if (!crCols.includes('priority')) {
-    db.exec('ALTER TABLE classify_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0');
-    // Existing rules: order by when they were last approved, so a re-approval
+    // One transaction: the column and its backfill land together. Existing
+    // rules are ordered by when they were last approved, so a re-approval
     // made before the upgrade still beats the older decision.
-    db.exec(`UPDATE classify_rules SET priority = (
-      SELECT COUNT(*) FROM classify_rules c2
-      WHERE c2.created_at < classify_rules.created_at OR (c2.created_at = classify_rules.created_at AND c2.rowid < classify_rules.rowid)) + 1`);
+    db.exec(`BEGIN IMMEDIATE;
+      ALTER TABLE classify_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+      UPDATE classify_rules SET priority = (
+        SELECT COUNT(*) FROM classify_rules c2
+        WHERE c2.created_at < classify_rules.created_at OR (c2.created_at = classify_rules.created_at AND c2.rowid < classify_rules.rowid)) + 1;
+      COMMIT;`);
   }
   const ccCols = db.prepare('PRAGMA table_info(cardcom_sales)').all().map((c) => c.name);
   for (const [col, type] of [['acquirer', 'TEXT'], ['payments', 'INTEGER'], ['first_payment', 'REAL'], ['const_payment', 'REAL']]) {

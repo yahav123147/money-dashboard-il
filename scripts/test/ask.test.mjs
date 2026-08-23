@@ -28,6 +28,7 @@ test('dataPack: per-month in/out by bucket, top names, pending excluded, 13-mont
   tx(db, 'p1', '2026-08-30', -5000, 'עתידי', 'rent', 'expense', 'PENDING');
   tx(db, 'old', '2025-06-01', 99999, 'ישן', 'direct', 'revenue');
   tx(db, 'sec', '2026-07-09', 500000, 'מכירת ני"ע', 'securities_sale', 'below_line');
+  tx(db, 'pin', '2026-07-25', 70000, 'לקוח עתידי', 'direct', 'revenue', 'PENDING');
   const pack = dataPack(db, '2026-08-10');
   assert.equal(pack.from, '2025-08');
   assert.equal(pack.months['2026-07'].in, 42000, 'operating money only');
@@ -37,6 +38,7 @@ test('dataPack: per-month in/out by bucket, top names, pending excluded, 13-mont
   assert.equal(pack.months['2026-07'].net, 34000);
   assert.equal(pack.months['2026-07'].outBy.rent, 8000);
   assert.equal(pack.topIn['2026-07'][0].name, 'לקוח א');
+  assert.ok(!pack.topIn['2026-07'].some((x) => x.name === 'לקוח עתידי'), 'pending rows are not in the top names either');
   assert.equal(pack.months['2026-08'], undefined, 'pending rows do not count');
   assert.equal(pack.months['2025-06'], undefined, 'outside the window');
 });
@@ -49,8 +51,13 @@ test('runReadOnly: SELECT only, one statement, fresh read-only connection, cappe
   assert.throws(() => runReadOnly(path, 'DELETE FROM bank_transactions'), /SELECT/);
   assert.throws(() => runReadOnly(path, 'SELECT 1; DELETE FROM bank_transactions'), /אחת/);
   assert.throws(() => runReadOnly(path, 'WITH x AS (SELECT 1) INSERT INTO accounts (id) VALUES (1)'), /קריאה/);
-  assert.ok(runReadOnly(path, "SELECT name FROM pragma_table_info('accounts')").rows.length > 0, 'schema introspection is fine on a read-only connection');
+  assert.throws(() => runReadOnly(path, "SELECT name FROM pragma_table_info('accounts')"), /לא מותרת/, 'only the allow-listed tables; the schema is in the prompt');
   assert.throws(() => runReadOnly(path, 'PRAGMA journal_mode = DELETE'), /SELECT/);
+  assert.throws(() => runReadOnly(path, 'SELECT * FROM sqlite_master'), /לא מותרת|קריאה/);
+  assert.throws(() => runReadOnly(path, 'SELECT * FROM balance_snapshots'), /לא מותרת/);
+  assert.throws(() => runReadOnly(path, 'SELECT b.id FROM bank_transactions b JOIN counterparties c ON 1'), /לא מותרת/);
+  const small = runReadOnly(path, 'SELECT id, counterparty FROM bank_transactions', { maxBytes: 300 });
+  assert.ok(small.rows.length < 20 && small.truncated, 'byte cap cuts the result');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM bank_transactions').get().n, 250, 'nothing changed');
 });
 

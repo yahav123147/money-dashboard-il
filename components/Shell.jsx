@@ -20,7 +20,7 @@ export default function Shell({ tab, title, dash, children }) {
           <div><div className="kicker">חדר מצב כסף</div><h1>ברוך הבא</h1></div>
         </header>
         <Setup status={setup} onDone={async () => { setShowSetup(false); await loadSetup(); fetchAll(); }} />
-        <footer>מקומי בלבד · הנתונים לא יוצאים מהמחשב שלך</footer>
+        <footer>מקומי · הנתונים נשארים במחשב שלך, חוץ מתמצית שהסוכנים שולחים ל-Claude אחרי שאישרת</footer>
       </main>
     );
   }
@@ -48,7 +48,7 @@ export default function Shell({ tab, title, dash, children }) {
         <button type="button" className="linkish" onClick={() => setShowSetup(true)}>הגדרות</button>
       </div>
       {children}
-      <footer>מקומי בלבד · הנתונים לא יוצאים מהמחשב שלך</footer>
+      <footer>מקומי · הנתונים נשארים במחשב שלך, חוץ מתמצית שהסוכנים שולחים ל-Claude אחרי שאישרת</footer>
       <Ask />
     </main>
   );

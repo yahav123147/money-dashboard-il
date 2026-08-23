@@ -12,10 +12,10 @@
 // Guards: refuses to touch a database that already has rows, or a settings
 // file that already names an entity, unless --force is given. Reset with:
 //   git checkout config/ && rm -f data/money.db*
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, copyFileSync, existsSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { openDb, upsertTx, rebuildCounterparties } from './lib/db.mjs';
+import { openDb, upsertTx, rebuildCounterparties, DB_PATH } from './lib/db.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -163,6 +163,33 @@ export function seedDemo(db, entity = 'murshe', today = israelToday()) {
 
 // Tests point this at a scratch directory; real runs use config/.
 const CONFIG_DIR = process.env.MONEY_CONFIG_DIR || join(ROOT, 'config');
+const DEFAULTS_DIR = join(ROOT, 'config.defaults');
+const AGENT_TABLES = ['classify_rules', 'classify_proposals', 'agent_runs'];
+const DATA_TABLES = ['bank_transactions', 'cardcom_sales', 'accounts', 'balance_snapshots', 'counterparties', 'sync_log', ...AGENT_TABLES];
+
+// Config files that differ from the shipped defaults: a calibrated business,
+// not a fresh install. Demo must not run on top of it without --force, and
+// --force backs it up before resetting.
+function customisedConfig() {
+  const out = [];
+  for (const f of readdirSync(DEFAULTS_DIR)) {
+    if (!f.endsWith('.json')) continue;
+    try {
+      const a = JSON.stringify(JSON.parse(readFileSync(join(DEFAULTS_DIR, f), 'utf8')));
+      const b = JSON.stringify(JSON.parse(readFileSync(join(CONFIG_DIR, f), 'utf8')));
+      if (a !== b) out.push(f);
+    } catch { out.push(f); }
+  }
+  return out;
+}
+function backupAndResetConfig(dataDir) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dest = join(dataDir, `config-backup-${stamp}`);
+  mkdirSync(dest, { recursive: true });
+  for (const f of readdirSync(CONFIG_DIR)) if (f.endsWith('.json')) copyFileSync(join(CONFIG_DIR, f), join(dest, f));
+  for (const f of readdirSync(DEFAULTS_DIR)) if (f.endsWith('.json')) copyFileSync(join(DEFAULTS_DIR, f), join(CONFIG_DIR, f));
+  return dest;
+}
 
 function writeDemoConfig(entity) {
   const sPath = join(CONFIG_DIR, 'settings.json');
@@ -266,18 +293,20 @@ function main() {
   }
   const db = openDb();
   try {
-    const TABLES = ['bank_transactions', 'classify_rules', 'cardcom_sales', 'accounts', 'balance_snapshots', 'counterparties', 'sync_log'];
-    const existing = TABLES.reduce((n, t) => n + db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n, 0);
-    const settings = JSON.parse(readFileSync(join(CONFIG_DIR, 'settings.json'), 'utf8'));
-    if ((existing > 0 || settings.entityType) && !force) {
-      console.error(`יש כבר נתונים (${existing} רשומות) או קונפיג מוגדר (entityType=${settings.entityType}).`);
-      console.error('מצב הדגמה לא דורס נתונים אמיתיים. אם זו באמת הכוונה: npm run demo -- --force');
-      console.error('לאיפוס מלא: git checkout config/ && rm -f data/money.db*');
+    const existing = DATA_TABLES.reduce((n, t) => n + db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n, 0);
+    const custom = customisedConfig();
+    const dataDir = dirname(DB_PATH);
+    const agentOut = [join(dataDir, 'review'), join(dataDir, 'classify')].filter((d) => existsSync(d));
+    if ((existing > 0 || custom.length || agentOut.length) && !force) {
+      console.error(`יש כבר נתונים (${existing} רשומות)${custom.length ? `, קונפיג מותאם (${custom.join(', ')})` : ''}${agentOut.length ? ', ופלט של סוכנים' : ''}.`);
+      console.error('מצב הדגמה לא דורס עסק אמיתי. אם זו באמת הכוונה: npm run demo -- --force (הקונפיג יגובה ל-data/config-backup-*)');
       process.exitCode = 1;
       return;
     }
-    if (force && existing > 0) {
-      db.exec('BEGIN IMMEDIATE; ' + TABLES.map((t) => `DELETE FROM ${t};`).join(' ') + ' COMMIT;');
+    if (force) {
+      db.exec('BEGIN IMMEDIATE; ' + DATA_TABLES.map((t) => `DELETE FROM ${t};`).join(' ') + ' COMMIT;');
+      for (const d of agentOut) rmSync(d, { recursive: true, force: true });
+      if (custom.length) console.log(`הקונפיג הקודם גובה ל-${backupAndResetConfig(dataDir)}`);
     }
     const today = israelToday();
     const { rows } = seedDemo(db, entity, today);
@@ -290,7 +319,7 @@ function main() {
       console.log('שים לב: החלון חוצה שנת מס. הדשבורד מציג את שנת המס הנוכחית בלבד, ולכן חלק מהחודשים לא יופיעו בפאנל ההוצאות ובגשר המס.');
     }
     console.log('הרץ: npm run dev  →  http://localhost:8423');
-    console.log('לאיפוס: git checkout config/ && rm -f data/money.db*');
+    console.log('לאיפוס: git checkout config/ && rm -f data/money.db*  (ואם היה גיבוי: להעתיק חזרה מ-data/config-backup-*)');
   } finally {
     db.close();
   }

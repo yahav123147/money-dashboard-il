@@ -4,7 +4,7 @@ import { rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, upsertTx } from '../lib/db.mjs';
-import { gatherUnclassified, parseProposals, applyProposal, listRules, removeRule, BANK_BUCKETS } from '../lib/classify-agent.mjs';
+import { gatherUnclassified, parseProposals, applyProposal, listRules, removeRule, saveProposals, listProposals, setProposalStatus, alsoMatches, BANK_BUCKETS } from '../lib/classify-agent.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 function tmpDb(t, name) {
@@ -148,7 +148,7 @@ test('applyProposal: rule in SQLite, history of that counterparty moves, neighbo
   assert.equal(res.reclassified, 2);
   assert.ok(db.prepare(`SELECT bucket FROM bank_transactions WHERE counterparty='הוט מובייל בעמ'`).all().every((r) => r.bucket === 'suppliers_other'));
   assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='z1'`).get().bucket_group, 'unclassified');
-  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='y1'`).get().bucket_group, 'unclassified', 'exact-name rule: neighbour untouched');
+  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='y1'`).get().bucket_group, 'unclassified', 'match "הוט מובייל בעמ" is not inside the neighbour name');
   assert.throws(() => applyProposal(db, { side: 'out', match: 'xx', bucket: 'nope', counterparty: 'xx' }));
   assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: '__proto__', counterparty: 'הוט מובייל בעמ' }), /קטגוריה/);
   assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: 'constructor', counterparty: 'הוט מובייל בעמ' }), /קטגוריה/);
@@ -216,4 +216,41 @@ test('priority migration: rules from before the column keep their re-approval or
   assert.equal(rules[0].match, 'הוט', 're-approved rule is first despite the lower rowid');
   assert.deepEqual(rules.map((r) => r.priority), [2, 1]);
   db.close();
+});
+
+test('alsoMatches previews the other counterparties a substring rule would claim', (t) => {
+  const db = tmpDb(t, 'test-cla10.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  tx(db, 'b1', '2026-07-02', -4000, 'הוט שירותי ענן', 'unclassified', 'unclassified');
+  tx(db, 'c1', '2026-07-02', 4000, 'הוט לקוח', 'direct', 'revenue'); // other direction: not listed
+  const a = alsoMatches(db, 'out', 'הוט', 'הוט מובייל בעמ');
+  assert.deepEqual(a.map((x) => x.name), ['הוט שירותי ענן']);
+  assert.deepEqual(alsoMatches(db, 'out', 'הוט מובייל', 'הוט מובייל בעמ'), []);
+});
+
+test('proposals live in SQLite: save keeps decisions, approve/undo/reject move status in the same transaction', (t) => {
+  const db = tmpDb(t, 'test-cla11.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  tx(db, 'b1', '2026-07-02', -4000, 'ספק ב', 'unclassified', 'unclassified');
+  const mk = (counterparty, bucket) => ({ side: 'out', counterparty, match: counterparty, bucket, group: 'expense', label: 'x', reason: '', confidence: 'high', count: 1, total: -3000 });
+  assert.equal(saveProposals(db, [mk('הוט מובייל בעמ', 'suppliers_other'), mk('ספק ב', 'rent')]), 2);
+  assert.equal(listProposals(db).length, 2);
+  const res = applyProposal(db, { side: 'out', match: 'הוט מובייל בעמ', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  let p = listProposals(db).find((x) => x.counterparty === 'הוט מובייל בעמ');
+  assert.equal(p.status, 'approved'); assert.equal(p.reclassified, res.reclassified);
+  setProposalStatus(db, { side: 'out', counterparty: 'ספק ב', status: 'rejected' });
+  // a new agent run proposes a different bucket for the approved one: the decision stays
+  saveProposals(db, [mk('הוט מובייל בעמ', 'rent'), mk('ספק ב', 'rent'), mk('חדש', 'team')]);
+  p = listProposals(db).find((x) => x.counterparty === 'הוט מובייל בעמ');
+  assert.equal(p.status, 'approved'); assert.equal(p.bucket, 'suppliers_other', 'decided proposals keep their bucket');
+  assert.equal(listProposals(db).find((x) => x.counterparty === 'ספק ב').status, 'rejected');
+  assert.equal(listProposals(db).find((x) => x.counterparty === 'חדש').status, 'pending');
+  // undo reopens the proposal in the same transaction
+  const u = removeRule(db, { side: 'out', match: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  assert.equal(u.reopened, 1);
+  assert.equal(listProposals(db).find((x) => x.counterparty === 'הוט מובייל בעמ').status, 'pending');
+  // a pending proposal whose name is no longer unclassified disappears on the next save
+  saveProposals(db, [mk('ספק ב', 'rent')]);
+  assert.equal(listProposals(db).some((x) => x.counterparty === 'חדש'), false);
+  assert.throws(() => setProposalStatus(db, { side: 'out', counterparty: 'אין', status: 'rejected' }), /לא נמצאה/);
 });

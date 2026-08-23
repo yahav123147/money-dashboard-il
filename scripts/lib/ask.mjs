@@ -39,7 +39,7 @@ export function dataPack(db, today, months = 13) {
   const top = (sign) => db.prepare(`
     SELECT month, counterparty, SUM(amount) s, COUNT(*) n FROM bank_transactions
     WHERE account_type='CHECKING' AND currency='ILS' AND month >= ? AND month <= ? AND amount ${sign} 0 AND counterparty != ''
-      AND bucket_group IN ('revenue','refund','expense','unclassified')
+      AND status != 'PENDING' AND bucket_group IN ('revenue','refund','expense','unclassified')
     GROUP BY month, counterparty ORDER BY month, ABS(SUM(amount)) DESC
   `).all(from, ym);
   const topIn = {}; const topOut = {};
@@ -74,20 +74,34 @@ cardcom_sales(deal_id, date, amount, product, acquirer, payments)
 sync_log(source, ts, ok)
 classify_rules(side, match, bucket, bucket_group)`;
 
-// One SELECT, on a fresh read-only connection, capped rows. Anything else
-// is refused before it reaches SQLite.
-export function runReadOnly(dbPath, sql, { maxRows = 200 } = {}) {
+export const ALLOWED_TABLES = ['bank_transactions', 'accounts', 'cardcom_sales', 'sync_log', 'classify_rules', 'classify_proposals'];
+
+// One SELECT, on a fresh read-only connection, only the allow-listed tables,
+// rows streamed and cut at maxRows / maxBytes so a huge result is never
+// materialised. Anything else is refused before it reaches SQLite.
+export function runReadOnly(dbPath, sql, { maxRows = 200, maxBytes = 60000 } = {}) {
   const s = String(sql || '').trim().replace(/;\s*$/, '');
   if (!/^(select|with)\b/i.test(s)) throw new Error('מותר רק SELECT');
   if (/;/.test(s)) throw new Error('שאילתה אחת בלבד');
-  if (/\b(attach|detach|pragma|insert|update|delete|drop|alter|create|replace|vacuum|reindex)\b/i.test(s)) throw new Error('שאילתה לקריאה בלבד');
+  if (/\b(attach|detach|pragma|insert|update|delete|drop|alter|create|replace|vacuum|reindex|sqlite_|readfile|writefile|load_extension)\b/i.test(s)) throw new Error('שאילתה לקריאה בלבד');
+  for (const m of s.matchAll(/\b(?:from|join)\s+["`]?([A-Za-z_][A-Za-z0-9_]*)/gi)) {
+    const t = m[1].toLowerCase();
+    if (!ALLOWED_TABLES.includes(t) && !/^(select|with)$/.test(t)) throw new Error(`טבלה לא מותרת: ${m[1]}`);
+  }
   const ro = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
     ro.pragma('query_only = 1');
     const stmt = ro.prepare(s);
     if (!stmt.reader) throw new Error('השאילתה לא מחזירה שורות');
-    const rows = stmt.all();
-    return { rows: rows.slice(0, maxRows), truncated: rows.length > maxRows, total: rows.length };
+    const rows = []; let bytes = 0; let truncated = false; let total = 0;
+    for (const row of stmt.iterate()) {
+      total += 1;
+      if (rows.length >= maxRows) { truncated = true; if (total > maxRows + 1000) break; continue; }
+      const len = JSON.stringify(row).length;
+      if (bytes + len > maxBytes) { truncated = true; continue; }
+      rows.push(row); bytes += len;
+    }
+    return { rows, truncated, total: truncated && total > maxRows + 1000 ? `${total}+` : total };
   } finally { ro.close(); }
 }
 

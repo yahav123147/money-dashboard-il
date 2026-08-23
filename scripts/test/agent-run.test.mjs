@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasHeadings, findProviderOverrides, dropSnapshots, ensureSubscription, settingsFiles, preflight } from '../lib/agent-run.mjs';
-import { writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { hasHeadings, findProviderOverrides, dropSnapshots, ensureSubscription, settingsFiles, preflight, ensureConsent, CONSENT_VERSION } from '../lib/agent-run.mjs';
+import { writeFileSync, mkdirSync, existsSync, rmSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -104,4 +104,20 @@ test('preflight drops snapshots even when a check throws', (t) => {
   // settings path that does not exist makes ensureConsent throw inside preflight
   assert.throws(() => preflight([], { settingsPath: join(root, 'nope.json'), root }));
   assert.equal(existsSync(join(root, 'data', 'review', 'snapshot.json')), false);
+});
+
+test('env names are matched case-insensitively (Windows)', (t) => {
+  quiet(t);
+  const base = { status: MAX, overrides: () => [], mdm: () => false, settingsPath: settingsWith(t, {}) };
+  assert.equal(ensureSubscription({ ...base, env: { anthropic_api_key: 'x' } }), false);
+  assert.equal(ensureSubscription({ ...base, env: { Claude_Code_Use_Bedrock: '1' } }), false);
+});
+
+test('consent is versioned: an older consent does not cover the chat until re-approved', (t) => {
+  quiet(t);
+  assert.equal(ensureConsent([], settingsWith(t, { agentsSendDataToClaude: true, agentsConsentVersion: 1 })), false, 'v1 consent predates the chat');
+  assert.equal(ensureConsent([], settingsWith(t, { agentsSendDataToClaude: true, agentsConsentVersion: CONSENT_VERSION })), true);
+  const p = settingsWith(t, { agentsSendDataToClaude: true, agentsConsentVersion: 1 });
+  assert.equal(ensureConsent(['--yes'], p), true);
+  assert.equal(JSON.parse(readFileSync(p, 'utf8')).agentsConsentVersion, CONSENT_VERSION, '--yes records the current version');
 });

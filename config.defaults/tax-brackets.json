@@ -1,0 +1,159 @@
+{
+  "year": 2026,
+  "_": "מדרגות מס, נקודות זיכוי, ביטוח לאומי ותקרות — ישראל, שנת המס 2026. נחקר 16.08.2026.",
+  "_howToUse": "כל שדה נושא confidence: official = נלקח מאתר רשמי (btl.gov.il), secondary = מקור משני שאומת בשני מקורות בלתי-תלויים לפחות. verifiedBy נשאר null עד שרו\"ח מאשר.",
+  "verifiedBy": null,
+  "verifiedAt": null,
+  "_warning": "שלושה מקורות משניים נתנו שלושה ספים שונים לביטוח לאומי לאותה שנה: ₪7,710, ₪7,703 ו-₪7,522. האתר הרשמי הכריע ₪7,703. זו הסיבה שכל שדה כאן נושא מקור — ושצריך אישור רו\"ח לפני הגשה.",
+  "incomeTax": {
+    "confidence": "secondary",
+    "_verifiedAgainst": "שני מקורות בלתי-תלויים, חודשי מול שנתי, תואמים בדיוק (84,120/12 = 7,010 וכן הלאה)",
+    "_appliesTo": "הכנסה מיגיעה אישית — עוסק פטור, עוסק מורשה, ושכר בעל שליטה",
+    "brackets": [
+      {
+        "upToAnnual": 84120,
+        "upToMonthly": 7010,
+        "rate": 0.1
+      },
+      {
+        "upToAnnual": 120720,
+        "upToMonthly": 10060,
+        "rate": 0.14
+      },
+      {
+        "upToAnnual": 228000,
+        "upToMonthly": 19000,
+        "rate": 0.2
+      },
+      {
+        "upToAnnual": 301200,
+        "upToMonthly": 25100,
+        "rate": 0.31
+      },
+      {
+        "upToAnnual": 560280,
+        "upToMonthly": 46690,
+        "rate": 0.35
+      },
+      {
+        "upToAnnual": 721560,
+        "upToMonthly": 60130,
+        "rate": 0.47
+      },
+      {
+        "upToAnnual": null,
+        "upToMonthly": null,
+        "rate": 0.47,
+        "_note": "מעל התקרה חל גם מס יסף — ראה surtax"
+      }
+    ],
+    "surtax": {
+      "rate": 0.03,
+      "annualThreshold": 721560,
+      "_effect": "השיעור השולי העליון על הכנסה מיגיעה אישית מגיע ל-50%"
+    }
+  },
+  "creditPoint": {
+    "confidence": "secondary",
+    "monthly": 242,
+    "annual": 2904,
+    "_frozen": "שווי נקודת הזיכוי הוקפא ב-2025 וממשיך מוקפא ב-2026 וב-2027",
+    "_note": "מספר נקודות הזיכוי תלוי במצב אישי (תושב, מין, ילדים, שירות צבאי, ועוד) — האונבורדינג חייב לשאול, לא להניח",
+    "minimumResidentPoints": 2.25,
+    "_minimumNote": "כל תושב ישראל זכאי ל-2.25 לפחות; אישה 2.75. משמש כברירת מחדל מחמירה כשלא הוגדר."
+  },
+  "nationalInsurance": {
+    "confidence": "official",
+    "_source": "btl.gov.il — עמוד שיעורי דמי הביטוח לעובד עצמאי, בתוקף מ-01.01.2026",
+    "_appliesTo": "עובד עצמאי בגיל 18 עד גיל פרישה. מתחת ל-18 ובגיל פרישה — מבנה שונה.",
+    "selfEmployed": {
+      "reduced": {
+        "upToMonthly": 7703,
+        "nationalInsurance": 0.0447,
+        "healthInsurance": 0.0323,
+        "combined": 0.077
+      },
+      "full": {
+        "fromMonthly": 7703,
+        "upToMonthly": 51910,
+        "nationalInsurance": 0.1283,
+        "healthInsurance": 0.0517,
+        "combined": 0.18
+      },
+      "minimumMonthlyIncome": 3442,
+      "_minimumRule": "מי שהכנסתו נמוכה מהרצפה משלם כאילו הרוויח אותה",
+      "_ceilingRule": "מעל ₪51,910 לחודש לא משולמים דמי ביטוח"
+    }
+  },
+  "vat": {
+    "monthlyReportingThreshold": 1775000,
+    "_monthlyReportingThreshold": "מחזור שנתי שמעליו דיווח מע\"מ חודשי (01.01.2026). מתחתיו דו-חודשי.",
+    "detailedReportingThresholdIndividual": 500000,
+    "_detailedReportingThresholdIndividual": "מ-2026 עוסק יחיד מעל סכום זה חייב דיווח מפורט (874), ועובר לדיווח חודשי עד ה-23.",
+    "_sources": [
+      "https://www.kolzchut.org.il/he/הגשת_דו\"חות_תקופתיים_ותשלום_מס_ערך_מוסף",
+      "https://ig-tax.co.il/service/דיווח-תשלום-דוח-מעמ/"
+    ]
+  },
+  "osekPatur": {
+    "confidence": "secondary",
+    "annualTurnoverCeiling": 122833,
+    "_verifiedAgainst": "שני מקורות בלתי-תלויים",
+    "_rule": "התקרה היא על המחזור, לא על הרווח. חריגה אפילו בשקל מחייבת מע\"מ מלא על העודף."
+  },
+  "company": {
+    "confidence": "secondary",
+    "corporateTaxRate": 0.23,
+    "dividend": {
+      "ordinaryShareholder": 0.25,
+      "substantialShareholder": 0.3,
+      "_substantialDefinition": "מחזיק 10% ומעלה באמצעי השליטה. ברוב החברות הקטנות הבעלים הוא בעל מניות מהותי.",
+      "_surtaxNote": "מס יסף חל גם על דיבידנד — לאמת את השיעור מול רו\"ח"
+    },
+    "_twoTierNote": "רווח שיוצא מהחברה ממוסה פעמיים: מס חברות ואז מס דיבידנד בחלוקה"
+  },
+  "sources": [
+    {
+      "for": "ביטוח לאומי ובריאות לעצמאי",
+      "official": true,
+      "url": "https://www.btl.gov.il/insurance/national%20insurance/type_list/self_employed/pages/rates.aspx"
+    },
+    {
+      "for": "מדרגות מס הכנסה",
+      "official": false,
+      "url": "https://taxes-refund.co.il/tax-brackets/"
+    },
+    {
+      "for": "מדרגות מס — אימות שני",
+      "official": false,
+      "url": "https://www.mako.co.il/news-money/calculators/Article-54d2f6451f9ff91027.htm"
+    },
+    {
+      "for": "נקודת זיכוי",
+      "official": false,
+      "url": "https://calcfinance.co.il/blog/credit-points-2026/"
+    },
+    {
+      "for": "תקרת עוסק פטור",
+      "official": false,
+      "url": "https://www.eddiecpa.com/articles/%D7%AA%D7%A7%D7%A8%D7%AA-%D7%A2%D7%95%D7%A1%D7%A7-%D7%A4%D7%98%D7%95%D7%A8/"
+    },
+    {
+      "for": "תקרת עוסק פטור — אימות שני",
+      "official": false,
+      "url": "https://www.greeninvoice.co.il/magazine/%D7%AA%D7%A7%D7%A8%D7%AA-%D7%A2%D7%95%D7%A1%D7%A7-%D7%A4%D7%98%D7%95%D7%A8/"
+    },
+    {
+      "for": "מס חברות ודיבידנד",
+      "official": false,
+      "url": "https://www.greeninvoice.co.il/magazine/%D7%9E%D7%A1-%D7%97%D7%91%D7%A8%D7%95%D7%AA-%D7%99%D7%A9%D7%A8%D7%90%D7%9C/"
+    }
+  ],
+  "_notResearched": [
+    "תקרות אש\"ל ולינה בנסיעות לחו\"ל — צמודות, דורשות פירוט לכל נסיעה",
+    "תקרת מתנות לנמען",
+    "תקרת ניכוי טלפון",
+    "שיעור מס יסף על דיבידנד — מקור אחד בלבד, לא אומת",
+    "סעיף 47א — ניכוי 52% מדמי ביטוח לאומי מההכנסה החייבת. הושמט בכוונה מהמנוע; ההערכה מחמירה מעט."
+  ]
+}

@@ -6,7 +6,7 @@
 //      with the first-party provider. Console/API-key, Bedrock, Vertex and
 //      apiKeyHelper logins are refused, so a run can never bill an API account;
 //   3. a bounded run with an atomic write of the result.
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, rmSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -16,19 +16,31 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SETTINGS = join(ROOT, 'config', 'settings.json');
 export const LOGIN_CMD = 'claude auth login --claudeai';
 
-export const DATA_NOTICE = `הסוכן שולח ל-Claude תמצית של הנתונים שלך: שמות מוטבים, תאריכים, סכומים, תיאורי תנועות ודוגמאות מחוקי הסיווג. לא נשלחות סיסמאות או מפתחות. ב-npm run זה עובר דרך מנוי Claude Code שלך אחרי בדיקת החיבור; מתוך סשן Claude Code פתוח (אם התרת agentsAllowInteractive) זה עובר דרך הסשן שפתחת, שאת הספק שלו הסקריפט לא יכול לאמת. האישור נשמר ב-config/settings.json (agentsSendDataToClaude).`;
+// Consent is versioned: when an agent starts sending more, the version goes
+// up and the owner is asked again. v1: /review, /classify. v2: adds the
+// chat (balances, account names, product names, your questions, and the
+// rows a read-only query returns).
+export const CONSENT_VERSION = 2;
+export const DATA_NOTICE = `הסוכנים (/review, /classify, והצ'אט "שאל את הנתונים") שולחים ל-Claude תמצית של הנתונים שלך: שמות מוטבים, תאריכים, סכומים, תיאורי תנועות, יתרות ושמות חשבונות, שמות מוצרים, דוגמאות מחוקי הסיווג, השאלות שאתה שואל בצ'אט והשורות ששאילתת קריאה מחזירה. לא נשלחות סיסמאות או מפתחות. ב-npm run זה עובר דרך מנוי Claude Code שלך אחרי בדיקת החיבור; מתוך סשן Claude Code פתוח (אם התרת agentsAllowInteractive) זה עובר דרך הסשן שפתחת, שאת הספק שלו הסקריפט לא יכול לאמת. האישור נשמר ב-config/settings.json (agentsSendDataToClaude + agentsConsentVersion).`;
 
 // Settings files Claude Code would load. Any provider/credential knob in them
 // (env.ANTHROPIC_*, apiKeyHelper, Bedrock/Vertex/Foundry switches) means a run
 // could leave the subscription even though `auth status` looks fine. User,
 // project and local sources are not loaded at all (--setting-sources ""),
 // but managed settings cannot be switched off, so every file is inspected.
-const FORBIDDEN_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_API|CLAUDE_CODE_PROVIDER|CLAUDE_CODE_SUBPROCESS_ENV_SCRUB|AWS_BEARER_TOKEN|AZURE_|GOOGLE_APPLICATION|CLOUD_ML_REGION)/;
+// Case-insensitive: Windows environment names are not case sensitive.
+const FORBIDDEN_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_API|CLAUDE_CODE_PROVIDER|CLAUDE_CODE_SUBPROCESS_ENV_SCRUB|AWS_BEARER_TOKEN|AZURE_|GOOGLE_APPLICATION|CLOUD_ML_REGION)/i;
+export function isWsl() {
+  if (process.platform !== 'linux') return false;
+  try { return /microsoft|wsl/i.test(readFileSync('/proc/version', 'utf8')); } catch { return false; }
+}
 export function settingsFiles(root = ROOT) {
   const files = [];
   const managedDirs = process.platform === 'win32'
     ? [join(process.env.ProgramFiles || 'C:\\Program Files', 'ClaudeCode'), join(process.env.ProgramData || 'C:\\ProgramData', 'ClaudeCode')]
     : ['/Library/Application Support/ClaudeCode', '/etc/claude-code'];
+  // WSL inherits Windows-side managed settings too.
+  if (isWsl()) managedDirs.push('/mnt/c/Program Files/ClaudeCode', '/mnt/c/ProgramData/ClaudeCode');
   for (const dir of managedDirs) {
     files.push(join(dir, 'managed-settings.json'));
     const d = join(dir, 'managed-settings.d');
@@ -55,9 +67,12 @@ export function mdmManagedSettingsPresent() {
     const r = spawnSync('defaults', ['read', 'com.anthropic.claudecode'], { encoding: 'utf8', timeout: 10000 });
     return r.status === 0 && (r.stdout || '').trim().length > 0;
   }
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' || isWsl()) {
+    const reg = process.platform === 'win32' ? 'reg' : 'reg.exe';
     for (const key of ['HKLM\\SOFTWARE\\Policies\\ClaudeCode', 'HKCU\\SOFTWARE\\Policies\\ClaudeCode']) {
-      const r = spawnSync('reg', ['query', key], { encoding: 'utf8', timeout: 10000 });
+      const r = spawnSync(reg, ['query', key], { encoding: 'utf8', timeout: 10000 });
+      // WSL without Windows interop cannot read the registry at all: unverifiable = present.
+      if (r.error && process.platform !== 'win32') return true;
       if (r.status === 0 && (r.stdout || '').trim().length > 0) return true;
     }
   }
@@ -84,14 +99,18 @@ export function preflight(argv = process.argv, { settingsPath = SETTINGS, root =
 
 export function ensureConsent(argv = process.argv, settingsPath = SETTINGS) {
   const s = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  if (s.agentsSendDataToClaude === true) return true;
+  const ver = Number(s.agentsConsentVersion) || 0;
+  if (s.agentsSendDataToClaude === true && ver >= CONSENT_VERSION) return true;
   if (argv.includes('--yes')) {
     s.agentsSendDataToClaude = true;
+    s.agentsConsentVersion = CONSENT_VERSION;
+    s._agentsConsentVersion = 'גרסת ההסכמה שאושרה. כשסוכן חדש שולח יותר, המספר עולה ומבקשים אישור מחדש. 2 = כולל הצ\'אט.';
     s._agentsSendDataToClaude = 'true = אישרת שהסוכנים (/review, /classify) שולחים תמצית של הנתונים ל-Claude דרך המנוי שלך. false = הסוכנים מסרבים לרוץ.';
     writeFileSync(settingsPath, JSON.stringify(s, null, 2) + '\n');
     return true;
   }
-  console.error(`\n${DATA_NOTICE}\n\nכדי לאשר פעם אחת: הוסף --yes לפקודה (למשל npm run review -- --yes), או ערוך config/settings.json.\n`);
+  const why = s.agentsSendDataToClaude === true ? `אישרת גרסה ${ver} של ההסכמה; הגרסה הנוכחית (${CONSENT_VERSION}) מוסיפה את הצ'אט "שאל את הנתונים", שמשתף גם יתרות, שמות חשבונות ומוצרים, השאלות שלך ותוצאות שאילתות.` : '';
+  console.error(`\n${DATA_NOTICE}\n${why ? why + '\n' : ''}\nכדי לאשר פעם אחת: הוסף --yes לפקודה (למשל npm run review -- --yes), או ערוך config/settings.json (agentsSendDataToClaude: true, agentsConsentVersion: ${CONSENT_VERSION}).\n`);
   return false;
 }
 
@@ -163,6 +182,30 @@ export function runClaude(prompt, { timeoutMs = 10 * 60 * 1000, model = process.
   const text = (res.stdout || '').trim().replace(/\s*—\s*/g, ', ').replace(/\s*–\s*/g, ', ');
   if (!text) return { ok: false, error: 'Claude החזיר פלט ריק' };
   return { ok: true, text };
+}
+
+// Same run, without blocking the event loop: for API routes. Resolves to
+// { ok, text } or { ok, error }; the child is killed on timeout.
+export function runClaudeAsync(prompt, { timeoutMs = 3 * 60 * 1000, model = process.env.REVIEW_MODEL, maxBytes = 4 * 1024 * 1024 } = {}) {
+  return new Promise((resolve) => {
+    const env = {};
+    for (const [k, v] of Object.entries(process.env)) if (!FORBIDDEN_ENV.test(k)) env[k] = v;
+    const args = ['-p', '--tools', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence', '--setting-sources', '', '--output-format', 'text'];
+    if (model) args.push('--model', model);
+    let out = ''; let err = ''; let done = false;
+    const child = spawn('claude', args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const finish = (res) => { if (!done) { done = true; clearTimeout(timer); resolve(res); } };
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } finish({ ok: false, error: `הריצה עברה ${Math.round(timeoutMs / 60000)} דקות ונעצרה` }); }, timeoutMs);
+    child.on('error', (e) => finish({ ok: false, error: String(e.message) }));
+    child.stdout.on('data', (d) => { out += d; if (out.length > maxBytes) { try { child.kill('SIGKILL'); } catch { /* gone */ } finish({ ok: false, error: 'הפלט גדול מדי' }); } });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('close', (code) => {
+      if (code !== 0) return finish({ ok: false, error: (err || out).trim().slice(0, 500) || `claude exited ${code}` });
+      const text = out.trim().replace(/\s*—\s*/g, ', ').replace(/\s*–\s*/g, ', ');
+      finish(text ? { ok: true, text } : { ok: false, error: 'Claude החזיר פלט ריק' });
+    });
+    child.stdin.end(prompt);
+  });
 }
 
 // Write JSON atomically (tmp + rename) so a reader never sees a half file.

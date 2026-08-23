@@ -100,11 +100,35 @@ export function parseProposals(text, groups) {
   return out;
 }
 
-// A rule change and the rows are one unit: insert (or re-promote) the rule,
-// then re-run the whole classification inside the same transaction. Rows
-// are therefore always exactly what the rules say: a re-approval that
-// changes the category moves its history too, a broader older rule never
-// wins, and nothing depends on remembering which rule touched which row.
+// What a substring rule would touch besides the counterparty it was proposed
+// for. Shown before approval, so "הוט" → rent is a conscious choice.
+export function alsoMatches(db, side, match, counterparty, limit = 6) {
+  const m = String(match || '').trim();
+  if (m.length < 2) return [];
+  return db.prepare(`
+    SELECT TRIM(COALESCE(counterparty, raw_desc, '')) name, COUNT(*) n FROM bank_transactions
+    WHERE account_type='CHECKING' AND currency='ILS'
+      AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
+      AND instr(COALESCE(counterparty,'') || ' ' || COALESCE(raw_desc,''), ?) > 0
+      AND TRIM(COALESCE(counterparty, raw_desc, '')) != ?
+    GROUP BY name ORDER BY n DESC LIMIT ?
+  `).all(side, side, m, String(counterparty || '').trim(), limit);
+}
+
+// Count rows whose classification (bucket, group or sub-bucket) differs between two snapshots.
+function snapshot(db) { return new Map(db.prepare('SELECT id, bucket, bucket_group, sub_bucket FROM bank_transactions').all().map((x) => [x.id, `${x.bucket}|${x.bucket_group}|${x.sub_bucket || ''}`])); }
+function reclassifyCounting(db, fileRules) {
+  const before = snapshot(db);
+  classifyAllLocked(db, withExplicit(db, fileRules));
+  let changed = 0;
+  for (const [id, v] of snapshot(db)) if (before.get(id) !== v) changed += 1;
+  return changed;
+}
+
+// A rule change, the rows and the proposal status are one unit. The rule is
+// a substring rule and applies everywhere a sync would apply it (the same
+// history a sync rewrites), so approval = what the next sync would do.
+// `reclassified` counts every row whose classification changed.
 export function applyProposal(db, { side, match, bucket, counterparty }, fileRules = loadRules()) {
   if (side !== 'in' && side !== 'out') throw new Error('כיוון לא תקין');
   const vocab = BANK_BUCKETS[side];
@@ -123,6 +147,7 @@ export function applyProposal(db, { side, match, bucket, counterparty }, fileRul
       ON CONFLICT(side, match) DO UPDATE SET bucket=excluded.bucket, bucket_group=excluded.bucket_group, counterparty=excluded.counterparty, created_at=excluded.created_at, priority=excluded.priority
     `).run(side, m, bucket, group, name, priority);
     const changed = reclassifyCounting(db, fileRules);
+    db.prepare(`UPDATE classify_proposals SET status='approved', decided_at=datetime('now'), reclassified=?, bucket=?, bucket_group=?, match=? WHERE side=? AND counterparty=?`).run(changed, bucket, group, m, side, name);
     return { rule: { match: [m], bucket, group }, reclassified: changed };
   }).immediate();
 }
@@ -132,9 +157,10 @@ export function listRules(db) {
   return db.prepare('SELECT side, match, bucket, bucket_group AS "group", counterparty, created_at AS createdAt, priority FROM classify_rules ORDER BY priority DESC, created_at DESC').all();
 }
 
-// Undo a rule: delete it and re-run the classification in the same
-// transaction, so whatever that rule had claimed falls back to older rules
-// and built-ins, and nothing else moves.
+// Undo a rule: delete it, re-run the classification, and reopen the proposal
+// it came from, all in one transaction. Rows the rule had claimed fall back
+// to older rules and built-ins (a small amount may land in the default
+// supplier bucket rather than "unclassified": that is the built-in's call).
 export function removeRule(db, { side, match }, fileRules = loadRules()) {
   if (side !== 'in' && side !== 'out') throw new Error('כיוון לא תקין');
   const m = String(match || '').trim();
@@ -143,15 +169,48 @@ export function removeRule(db, { side, match }, fileRules = loadRules()) {
     if (!r) throw new Error('החוק לא נמצא');
     db.prepare('DELETE FROM classify_rules WHERE side=? AND match=?').run(side, m);
     const changed = reclassifyCounting(db, fileRules);
-    return { removed: { side, match: m, bucket: r.bucket, counterparty: r.counterparty }, reverted: changed };
+    const reopened = db.prepare(`UPDATE classify_proposals SET status='pending', decided_at=NULL, reclassified=NULL WHERE side=? AND counterparty=? AND status='approved'`).run(side, r.counterparty || '').changes;
+    return { removed: { side, match: m, bucket: r.bucket, counterparty: r.counterparty }, reverted: changed, reopened };
   }).immediate();
 }
 
-// Full reclassify inside the caller's transaction; returns how many rows changed bucket.
-function reclassifyCounting(db, fileRules) {
-  const before = new Map(db.prepare('SELECT id, bucket FROM bank_transactions').all().map((x) => [x.id, x.bucket]));
-  classifyAllLocked(db, withExplicit(db, fileRules));
-  let changed = 0;
-  for (const x of db.prepare('SELECT id, bucket FROM bank_transactions').all()) if (before.get(x.id) !== x.bucket) changed += 1;
-  return changed;
+// Proposals: the agent's fresh list is merged over the table, keeping
+// decisions already made (approved / rejected) for names still present.
+export function saveProposals(db, fresh) {
+  const up = db.prepare(`
+    INSERT INTO classify_proposals (side, counterparty, match, bucket, bucket_group, label, reason, confidence, count, total, status, proposed_at)
+    VALUES (@side, @counterparty, @match, @bucket, @group, @label, @reason, @confidence, @count, @total, 'pending', datetime('now'))
+    ON CONFLICT(side, counterparty) DO UPDATE SET
+      match = CASE WHEN classify_proposals.status = 'pending' THEN excluded.match ELSE classify_proposals.match END,
+      bucket = CASE WHEN classify_proposals.status = 'pending' THEN excluded.bucket ELSE classify_proposals.bucket END,
+      bucket_group = CASE WHEN classify_proposals.status = 'pending' THEN excluded.bucket_group ELSE classify_proposals.bucket_group END,
+      label = excluded.label, reason = excluded.reason, confidence = excluded.confidence,
+      count = excluded.count, total = excluded.total, proposed_at = excluded.proposed_at
+  `);
+  return db.transaction(() => {
+    const keep = new Set(fresh.map((p) => p.side + '|' + p.counterparty));
+    // names no longer unclassified (classified by a sync, or gone) leave the pending list
+    for (const row of db.prepare(`SELECT side, counterparty FROM classify_proposals WHERE status='pending'`).all()) {
+      if (!keep.has(row.side + '|' + row.counterparty)) db.prepare(`DELETE FROM classify_proposals WHERE side=? AND counterparty=?`).run(row.side, row.counterparty);
+    }
+    for (const p of fresh) up.run(p);
+    return fresh.length;
+  }).immediate();
+}
+export function listProposals(db) {
+  return db.prepare(`SELECT side, counterparty, match, bucket, bucket_group AS "group", label, reason, confidence, count, total, status, proposed_at AS proposedAt, decided_at AS decidedAt, reclassified FROM classify_proposals ORDER BY ABS(total) DESC`).all()
+    .map((p) => ({ ...p, alsoMatches: p.status === 'pending' ? alsoMatches(db, p.side, p.match, p.counterparty) : [] }));
+}
+export function setProposalStatus(db, { side, counterparty, status }) {
+  if (!['pending', 'rejected'].includes(status)) throw new Error('סטטוס לא תקין');
+  const n = db.prepare(`UPDATE classify_proposals SET status=?, decided_at=CASE WHEN ?='pending' THEN NULL ELSE datetime('now') END WHERE side=? AND counterparty=?`).run(status, status, side, counterparty).changes;
+  if (!n) throw new Error('הצעה לא נמצאה');
+  return n;
+}
+export function logAgentRun(db, agent, { ok, error = null, count = null, note = null }) {
+  db.prepare(`INSERT INTO agent_runs (agent, ts, ok, error, count, note) VALUES (?, datetime('now'), ?, ?, ?, ?)`).run(agent, ok ? 1 : 0, error, count, note);
+}
+export function lastAgentRun(db, agent) {
+  const r = db.prepare(`SELECT ts, ok, error, count, note FROM agent_runs WHERE agent=? ORDER BY id DESC LIMIT 1`).get(agent);
+  return r ? { ...r, ok: !!r.ok, ts: r.ts.replace(' ', 'T') + 'Z' } : null;
 }

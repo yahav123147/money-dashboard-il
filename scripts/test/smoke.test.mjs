@@ -128,13 +128,25 @@ test('demo seed: any real record blocks the guard; --force wipes every table; co
   const db = openDb(DB);
   db.prepare(`INSERT INTO cardcom_sales (deal_id, date, amount) VALUES ('d1', '2026-07-01', 100)`).run(); // only a sale, no bank rows, no rules
   db.close();
+  // a calibrated config (recurring item) must also block the guard on its own
+  const recPath = join(CFG, 'recurring.json');
+  const rec = JSON.parse(readFileSync(recPath, 'utf8')); rec.items = [{ name: 'שכירות אמיתית', day: 1, amount: -5000, bucket: 'rent' }]; writeFileSync(recPath, JSON.stringify(rec));
+  mkdirSync(join(ROOT, 'data', 'review'), { recursive: true }); writeFileSync(join(ROOT, 'data', 'review', 'latest.json'), '{"ok":true,"text":"real review"}');
+  t.after(() => rmSync(join(ROOT, 'data', 'review'), { recursive: true, force: true }));
   const env = { ...process.env, MONEY_DB_PATH: DB, MONEY_CONFIG_DIR: CFG, SECRETS_DISABLE_KEYCHAIN: '1' };
   const r1 = spawnSync(process.execPath, [join(ROOT, 'scripts', 'demo-seed.mjs')], { env, encoding: 'utf8', cwd: ROOT });
   assert.notEqual(r1.status, 0, 'guard must refuse: a sale is data');
+  assert.match(r1.stderr, /recurring.json/, 'and the customised config is named');
   const r2 = spawnSync(process.execPath, [join(ROOT, 'scripts', 'demo-seed.mjs'), '--force'], { env, encoding: 'utf8', cwd: ROOT });
   assert.equal(r2.status, 0, r2.stderr);
   const db2 = openDb(DB);
   assert.equal(db2.prepare(`SELECT COUNT(*) n FROM cardcom_sales WHERE deal_id='d1'`).get().n, 0, 'real sale wiped by --force');
+  assert.equal(existsSync(join(ROOT, 'data', 'review', 'latest.json')), false, 'old agent output wiped');
+  assert.deepEqual(JSON.parse(readFileSync(recPath, 'utf8')).items, [], 'config reset to defaults');
+  const backups = readdirSync(join(ROOT, 'data')).filter((f) => f.startsWith('config-backup-'));
+  assert.ok(backups.length >= 1, 'and backed up first');
+  assert.equal(JSON.parse(readFileSync(join(ROOT, 'data', backups[0], 'recurring.json'), 'utf8')).items[0].name, 'שכירות אמיתית');
+  t.after(() => { for (const b of backups) rmSync(join(ROOT, 'data', b), { recursive: true, force: true }); });
   assert.ok(db2.prepare('SELECT COUNT(*) n FROM cardcom_sales').get().n > 0, 'demo sales present');
   // a full reclassify reproduces the seeded buckets exactly (demo rules were written)
   const { classifyAll, loadRules } = await import('../lib/classify.mjs');

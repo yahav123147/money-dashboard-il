@@ -1,0 +1,111 @@
+{
+  "inflows": [
+    {
+      "match": [
+        "מכירת ני\"ע"
+      ],
+      "bucket": "securities_sale",
+      "group": "below_line"
+    }
+  ],
+  "inflowDefault": {
+    "bucket": "direct",
+    "group": "revenue"
+  },
+  "outflows": [
+    {
+      "match": [
+        "קנית ני\"ע"
+      ],
+      "bucket": "invest",
+      "group": "below_line"
+    },
+    {
+      "match": [
+        "המרה"
+      ],
+      "field": "desc",
+      "bucket": "fx_conversion",
+      "group": "below_line"
+    },
+    {
+      "matchRef": "cardIssuers",
+      "bucket": "card_settlement",
+      "group": "below_line"
+    },
+    {
+      "matchAll": [
+        "מס הכנסה",
+        "ניכויים"
+      ],
+      "bucket": "tax_withholding",
+      "group": "expense"
+    },
+    {
+      "match": [
+        "מס הכנסה"
+      ],
+      "bucket": "tax_advance",
+      "group": "expense"
+    },
+    {
+      "match": [
+        "מע\"מ"
+      ],
+      "bucket": "tax_vat",
+      "group": "expense"
+    },
+    {
+      "match": [
+        "ביטוח לאומ"
+      ],
+      "bucket": "tax_social",
+      "group": "expense"
+    },
+    {
+      "match": [
+        "הפקדות קופ"
+      ],
+      "bucket": "pension",
+      "group": "expense"
+    },
+    {
+      "matchAll": [
+        "העברה"
+      ],
+      "bucket": "refund_processor",
+      "group": "refund"
+    }
+  ],
+  "outflowDefaults": {
+    "largeThreshold": 2000,
+    "large": {
+      "bucket": "unclassified",
+      "group": "unclassified"
+    },
+    "small": {
+      "bucket": "suppliers_other",
+      "group": "expense"
+    }
+  },
+  "team": [],
+  "cardIssuers": [
+    "דיינרס",
+    "ויזה",
+    "ישראכרט",
+    "לאומי קארד",
+    "מקס איט",
+    "MAX IT",
+    "כרטיסי אשראי לישראל",
+    "כ.א.ל",
+    "אמריקן אקספרס",
+    "פועלים אקספרס"
+  ],
+  "_cardIssuers": "מנפיקי כרטיסי אשראי. חיוב מרוכז מהם אינו הוצאה, אלא סגירת הכרטיס: ההוצאה עצמה כבר נספרת מתנועות הכרטיס. חשוב: השאר ברשימה רק מנפיקים שהכרטיס שלהם מחובר לדשבורד. כרטיס שאינו מחובר, החיוב המרוכז שלו הוא הרישום היחיד של ההוצאה, וסינונו כאן ימחק אותה מהדוח. מחרוזות חייבות להיות ספציפיות: המנוע מחפש הכלה בטקסט, ולכן 'מקס' לבדו יתפוס גם 'מקסימום' ו'כאל' לבדו יתפוס גם 'מיכאל'.",
+  "suppliers": [],
+  "refundPairs": [],
+  "_": "חוקי סיווג תנועות בנק — ברירות מחדל ישראליות גנריות. האונבורדינג מוסיף את הספקים שלך.",
+  "_suppliers": "ספקים שלעולם אינם החזר כספי (עו\"ד, רו\"ח, קבלן). /setup ממלא אחרי הסנכרון הראשון.",
+  "_refundPairs": "לקוחות שקיבלו ממך החזר בפועל. /setup ממלא אחרי הסנכרון הראשון. לא לערוך ידנית עם שמות אמיתיים בריפו ציבורי.",
+  "_team": "שמות העובדים שלך כפי שהם מופיעים בהעברות הבנק. /setup ממלא אחרי הסנכרון הראשון."
+}

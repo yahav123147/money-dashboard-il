@@ -1,0 +1,62 @@
+{
+  "defaultSub": "other_business",
+  "rules": [
+    {
+      "sub": "ads",
+      "match": [
+        "FACEBK",
+        "FACEBOOK",
+        "GOOGLE ADS",
+        "TIKTOK"
+      ]
+    },
+    {
+      "sub": "profit_share",
+      "match": []
+    },
+    {
+      "sub": "fulfillment",
+      "match": []
+    },
+    {
+      "sub": "processing",
+      "match": []
+    },
+    {
+      "sub": "charity",
+      "match": []
+    },
+    {
+      "sub": "other_venture",
+      "match": []
+    },
+    {
+      "sub": "personal",
+      "match": [
+        "ארנונה",
+        "מפעל המים",
+        "חברת החשמל",
+        "בזק",
+        "YES"
+      ]
+    },
+    {
+      "sub": "tools",
+      "match": [
+        "APPLE.COM",
+        "CLAUDE.AI",
+        "ANTHROPIC",
+        "OPENAI",
+        "MANYCHAT",
+        "MAKE.COM",
+        "Adobe",
+        "Google Workspace",
+        "Google One",
+        "VIMEO",
+        "SHOPIFY",
+        "WIX.COM"
+      ]
+    }
+  ],
+  "_": "קטגוריות הוצאה + ספקים לדוגמה. האונבורדינג מרחיב לפי מה שבאמת יוצא לך מהחשבון."
+}
