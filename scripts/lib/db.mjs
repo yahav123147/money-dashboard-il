@@ -35,6 +35,7 @@ export function openDb(path = DB_PATH) {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000'); // two writers (API + a script) wait instead of failing
   db.exec(SCHEMA);
   const txCols = db.prepare('PRAGMA table_info(bank_transactions)').all().map((c) => c.name);
   if (!txCols.includes('sub_bucket')) {

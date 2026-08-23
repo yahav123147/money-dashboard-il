@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDb } from '@/lib/queries';
 import { applyProposal, gatherUnclassified } from '../../../scripts/lib/classify-agent.mjs';
@@ -38,8 +38,15 @@ export async function POST(req) {
     } else if (body.action === 'reject') {
       p.status = 'rejected';
     } else return Response.json({ error: 'פעולה לא מוכרת' }, { status: 400 });
-    mkdirSync(DIR, { recursive: true });
-    writeFileSync(FILE, JSON.stringify(saved, null, 1));
+    try {
+      mkdirSync(DIR, { recursive: true });
+      const tmp = `${FILE}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+      writeFileSync(tmp, JSON.stringify(saved, null, 1));
+      renameSync(tmp, FILE);
+    } catch (err) {
+      // The approval itself (rows + rule) is already in effect.
+      return Response.json({ ok: true, proposal: p, warning: `האישור בוצע, אבל סטטוס ההצעה לא נשמר: ${String(err?.message || err)}` });
+    }
     return Response.json({ ok: true, proposal: p });
   } catch (err) { return Response.json({ error: String(err?.message || err) }, { status: 400 }); }
 }

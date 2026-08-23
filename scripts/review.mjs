@@ -5,7 +5,7 @@
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureConsent, ensureSubscription, runClaude, writeJsonAtomic, hasHeadings, INJECTION_NOTE } from './lib/agent-run.mjs';
+import { preflight, runClaude, writeJsonAtomic, hasHeadings, INJECTION_NOTE } from './lib/agent-run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(ROOT);
@@ -14,8 +14,7 @@ mkdirSync(OUT, { recursive: true });
 
 // Consent and subscription come first, also for --snapshot-only: the
 // snapshot is the financial data, whoever reads it next.
-if (!ensureConsent()) process.exit(2);
-if (!ensureSubscription()) process.exit(2);
+if (!preflight()) process.exit(2);
 
 const q = await import('../lib/queries.js');
 const db = q.getDb();
@@ -37,6 +36,13 @@ const snapshot = {
   advancesYtd: safe(() => q.computeAdvancesYtd(db)),
   reconcile: safe(() => { const r = q.computeReconcile(db, 120); return { enabled: r.enabled, mode: r.mode, summary: r.summary, byAcquirer: r.byAcquirer, rows: (r.rows || []).map(({ credits, ...x }) => x) }; }),
 };
+// A section that failed to compute is a broken review, not a smaller one.
+const broken = Object.entries(snapshot).filter(([, v]) => v && typeof v === 'object' && v.error).map(([k, v]) => `${k}: ${v.error}`);
+if (broken.length) {
+  writeJsonAtomic(join(OUT, 'latest.json'), { date: today, ts: new Date().toISOString(), ok: false, error: `חלק מהנתונים לא חושבו: ${broken.join('; ')}`, syncTs: lastSync });
+  console.error('review: snapshot incomplete:', broken.join('; '));
+  process.exit(1);
+}
 writeFileSync(join(OUT, 'snapshot.json'), JSON.stringify(snapshot, null, 1));
 console.log(`snapshot: data/review/snapshot.json (${today})`);
 if (process.argv.includes('--snapshot-only')) process.exit(0);

@@ -17,7 +17,8 @@ JSON עם:
 - `examples`: חוקים קיימים, כדי שתשמור על אותו סגנון.
 - `entityType`: patur / murshe / company.
 
-באינטראקטיב, אם אין קובץ: `node scripts/classify-agent.mjs --snapshot-only` יוצר `data/classify/snapshot.json`.
+**בכל הפעלה, גם אם הקובץ כבר קיים**, הרץ קודם `node scripts/classify-agent.mjs --snapshot-only` והמשך רק
+אם יצא בקוד 0; הפקודה מאמתת הסכמה ומנוי ומייצרת snapshot טרי.
 אם הפקודה יוצאת בקוד 2, בעל העסק עוד לא אישר שליחת נתונים (או שהחיבור אינו מנוי
 claude.ai). **עצור והסבר**; אל תקרא את הנתונים בדרך אחרת.
 

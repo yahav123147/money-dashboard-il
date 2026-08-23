@@ -19,7 +19,7 @@ export function StatTiles({ b }) {
         <span className="stat-k">צפי תזרים · {n.horizon || 30} יום</span>
         <span className={`stat-v num${n.endProjected != null && n.endProjected < 0 ? ' neg' : ''}${n.endProjected == null ? ' none' : ''}`}>{n.endProjected != null ? fmtIls(n.endProjected) : n.quality && n.quality.confidence === 'low' ? 'מושהה' : 'אין'}</span>
         <span className={`stat-s${dip && dip.amount < 0 ? ' neg' : ''}`}>
-          {n.quality && n.quality.confidence === 'low' ? n.quality.confidenceText
+          {n.quality && n.quality.confidence !== 'high' ? n.quality.confidenceText
             : n.endProjected == null ? 'אין תחזית עדיין'
             : dip && dip.amount < 0 ? `בדרך: ירידה ל-${fmtIls(dip.amount)} ב${hebDay(dip.date)}`
             : dip && dip.belowWarn ? `בדרך: יורד עד ${fmtIls(dip.amount)} ב${hebDay(dip.date)}`

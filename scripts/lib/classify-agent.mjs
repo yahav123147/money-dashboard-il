@@ -3,7 +3,7 @@
 // itself (Claude, through the user's subscription) only ever sees the
 // groups below and returns JSON; every write goes through applyProposal,
 // after a person approved it in the dashboard or in /classify.
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRules } from './classify.mjs';
@@ -71,13 +71,15 @@ export function ruleExamples(rules = loadRules()) {
 }
 
 // Parse the agent's answer: a JSON array (optionally fenced). Drops anything
-// outside the vocabulary or not in the offered groups.
+// outside the vocabulary or not in the offered groups. Returns null when
+// there is no JSON array at all (a broken answer), [] when the agent
+// legitimately proposed nothing.
 export function parseProposals(text, groups) {
   const m = String(text || '').match(/```json\s*([\s\S]*?)```/) || String(text || '').match(/(\[[\s\S]*\])/);
-  if (!m) return [];
+  if (!m) return null;
   let arr;
-  try { arr = JSON.parse(m[1]); } catch { return []; }
-  if (!Array.isArray(arr)) return [];
+  try { arr = JSON.parse(m[1]); } catch { return null; }
+  if (!Array.isArray(arr)) return null;
   const byKey = new Map(groups.map((g) => [g.side + '|' + g.counterparty, g]));
   const out = [];
   for (const p of arr) {
@@ -115,30 +117,43 @@ export function applyProposal(db, { side, match, bucket, counterparty }, path = 
   if (!name) throw new Error('חסר שם מוטב');
   const m = String(match || '').trim();
   if (m.length < 2) throw new Error('טקסט התאמה קצר מדי');
-  const rules = JSON.parse(readFileSync(path, 'utf8'));
   const key = side === 'in' ? 'inflows' : 'outflows';
-  rules[key] = Array.isArray(rules[key]) ? rules[key] : [];
-  // One rule per match text; a newer decision replaces an older one.
-  rules[key] = rules[key].filter((r) => !(r.source === 'classify' && Array.isArray(r.match) && r.match.length === 1 && r.match[0] === m));
-  // First match wins in the engine, so an explicit decision goes to the front,
-  // ahead of the broad built-in rules. `source: 'classify'` also tells the
-  // refund heuristic to leave these rows alone.
-  rules[key].unshift({ match: [m], bucket, group, source: 'classify' });
-  // One unit of work: the history update and the rule file together. If the
-  // file write throws, the transaction rolls the rows back; if the update
-  // throws, the file is never written.
+  const rule = { match: [m], bucket, group, source: 'classify' };
   const update = db.prepare(`
     UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now')
     WHERE account_type='CHECKING' AND currency='ILS' AND bucket_group='unclassified'
       AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
       AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
   `);
-  const n = db.transaction(() => {
+  const revert = db.prepare(`
+    UPDATE bank_transactions SET bucket='unclassified', bucket_group='unclassified', updated_at=datetime('now')
+    WHERE account_type='CHECKING' AND currency='ILS' AND bucket=? AND bucket_group=?
+      AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
+      AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
+  `);
+  // BEGIN IMMEDIATE takes the database write lock for the whole
+  // read-modify-write of rules.json too, so two approvals in parallel (two
+  // browser tabs, the API and /classify) serialise instead of one silently
+  // overwriting the other's rule. The rules file is read INSIDE the lock.
+  const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  const tx = db.transaction(() => {
+    const rules = JSON.parse(readFileSync(path, 'utf8'));
+    rules[key] = Array.isArray(rules[key]) ? rules[key] : [];
+    rules[key] = rules[key].filter((r) => !(r.source === 'classify' && Array.isArray(r.match) && r.match.length === 1 && r.match[0] === m));
+    // First match wins in the engine, so an explicit decision goes to the front.
+    rules[key].unshift(rule);
     const changes = update.run(bucket, group, side, side, name).changes;
-    const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-    writeFileSync(tmp, JSON.stringify(rules, null, 2) + '\n');
-    renameSync(tmp, path);
+    writeFileSync(tmp, JSON.stringify(rules, null, 2) + '\n'); // staged, not yet visible
     return changes;
-  })();
+  });
+  let n;
+  try { n = tx.immediate(); } catch (e) { rmSync(tmp, { force: true }); throw e; }
+  // Rows are committed. Publish the rule; if that fails, put the rows back
+  // so the two never disagree.
+  try { renameSync(tmp, path); } catch (e) {
+    rmSync(tmp, { force: true });
+    revert.run(bucket, group, side, side, name);
+    throw new Error(`החוק לא נשמר (${e.message}); הסיווג בוטל`);
+  }
   return { rule: { match: [m], bucket, group }, reclassified: n };
 }

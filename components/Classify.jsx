@@ -22,6 +22,7 @@ export default function Classify() {
       const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, counterparty: p.counterparty, side: p.side }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.ok) setErr(`"${p.counterparty}": ${j.error || 'האישור נכשל'}`);
+      else if (j.warning) setErr(j.warning);
       await load();
     } catch (e) { setErr(`"${p.counterparty}": ${String(e?.message || e)}`); }
     finally { setBusy(null); }

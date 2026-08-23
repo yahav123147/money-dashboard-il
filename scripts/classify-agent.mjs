@@ -7,15 +7,14 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gatherUnclassified, ruleExamples, parseProposals, BANK_BUCKETS } from './lib/classify-agent.mjs';
-import { ensureConsent, ensureSubscription, runClaude, writeJsonAtomic, INJECTION_NOTE } from './lib/agent-run.mjs';
+import { preflight, runClaude, writeJsonAtomic, INJECTION_NOTE } from './lib/agent-run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(ROOT);
 const OUT = join(ROOT, 'data', 'classify');
 mkdirSync(OUT, { recursive: true });
 
-if (!ensureConsent()) process.exit(2);
-if (!ensureSubscription()) process.exit(2);
+if (!preflight()) process.exit(2);
 
 const q = await import('../lib/queries.js');
 const db = q.getDb();
@@ -28,6 +27,7 @@ console.log(`snapshot: ${u.totalGroups} מוטבים לא מסווגים (${u.to
 if (process.argv.includes('--snapshot-only')) process.exit(0);
 if (!u.groups.length) {
   writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: true, proposals: [], note: 'אין תנועות לא מסווגות' });
+  writeJsonAtomic(join(OUT, 'last-run.json'), { date: today, ts: new Date().toISOString(), ok: true, count: 0, note: 'אין תנועות לא מסווגות' });
   console.log('אין מה לסווג'); process.exit(0);
 }
 
@@ -42,7 +42,8 @@ const fail = (error) => {
 };
 if (!res.ok) fail(res.error);
 const fresh = parseProposals(res.text, u.groups);
-if (!fresh.length) fail('Claude לא החזיר הצעות תקינות (בלוק JSON עם קטגוריות מהמילון)');
+if (fresh === null) fail('Claude לא החזיר בלוק JSON תקין');
+// An empty array is a legitimate answer ("nothing I can name"), not a failure.
 // Keep earlier decisions (approved / rejected) for counterparties still present.
 let prev = [];
 try { prev = JSON.parse(readFileSync(join(OUT, 'proposals.json'), 'utf8')).proposals || []; } catch { /* first run */ }
