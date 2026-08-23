@@ -12,6 +12,7 @@ export default function Setup({ status, onDone }) {
   const [creditPoints, setCredit] = useState(status?.creditPoints ?? '');
   const [vatPeriod, setVatPeriod] = useState(status?.vatPeriodMonths == null ? 'auto' : String(status.vatPeriodMonths));
   const [vatDueDay, setVatDueDay] = useState(status?.vatDueDay ?? 15);
+  const [channels, setChannels] = useState((status?.channels || []).join(', '));
   const [financy, setFinancy] = useState({ clientId: '', clientSecret: '', userId: '' });
   const [useCardcom, setUseCardcom] = useState(!!status?.cardcomEnabled);
   const [cardcom, setCardcom] = useState({ apiName: '', apiPassword: '', productFieldId: status?.productFieldId ?? 24 });
@@ -28,7 +29,7 @@ export default function Setup({ status, onDone }) {
     setBusy(true);
     try {
       const body = {
-        entityType, advanceRatePct, creditPoints, vatPeriodMonths: vatPeriod, vatDueDay,
+        entityType, advanceRatePct, creditPoints, vatPeriodMonths: vatPeriod, vatDueDay, channels,
         financy: financy.clientId || financy.clientSecret || financy.userId ? financy : null,
         cardcom: useCardcom ? cardcom : null,
       };
@@ -99,6 +100,12 @@ export default function Setup({ status, onDone }) {
             </div>
           </>
         ) : null}
+
+        <div className="su-grid" style={{ marginTop: 14 }}>
+          {field('ערוצי ההכנסה של העסק',
+            inp({ value: channels, onChange: (e) => setChannels(e.target.value), placeholder: 'ליווי עסקי, קורס דיגיטלי, ייעוץ, מוצרים', style: { direction: 'rtl', textAlign: 'right' } }),
+            'מופרד בפסיקים. המחזור יחולק לפי זה; שיוך מוצרים ומוטבים לערוצים נעשה אחר כך בדשבורד.')}
+        </div>
 
         <h3 className="su-h">2 · בנק דרך Open Finance (Financy)</h3>
         {hasFinancy ? <p className="su-ok">מפתחות Financy כבר שמורים. מלא שוב רק כדי להחליף.</p> : null}

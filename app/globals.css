@@ -812,3 +812,14 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 .rc-pend { color: var(--ink-3); }
 .rc-part { color: #9a6b1e; }
 .rc-miss { color: #9a3b2e; }
+
+/* --- channels --- */
+.ch-list { margin-top: 6px; }
+.ch-row { padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.ch-row:last-child { border-bottom: none; }
+.ch-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 0.88rem; }
+.ch-name { color: var(--ink-2); }
+.ch-amt { color: var(--ink); }
+.ch-bar { height: 6px; background: var(--line-soft); border-radius: 4px; margin-top: 6px; overflow: hidden; }
+.ch-fill { height: 100%; background: var(--gold); border-radius: 4px; }
+.ch-fill.unm { background: #c9a06a; opacity: 0.6; }

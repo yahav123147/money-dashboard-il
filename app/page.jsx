@@ -6,6 +6,7 @@ import Sales from '@/components/Sales';
 import Reconcile from '@/components/Reconcile';
 import VatPanel from '@/components/VatPanel';
 import AdvancesYtd from '@/components/AdvancesYtd';
+import Channels from '@/components/Channels';
 import AccountsCard from '@/components/AccountsCard';
 import PnlTable from '@/components/PnlTable';
 import Expenses from '@/components/Expenses';
@@ -120,6 +121,8 @@ export default function Page() {
         <div className={`g3-cell${isPast ? ' as-of-today' : ''}`}><Cashflow cashflow={cashflow} /></div>
         <div className={`g3-cell${isPast ? ' as-of-today' : ''}`}><AccountsCard overview={overview} /></div>
       </div>
+
+      <Channels month={selMonth} />
 
       <div className="grid-2">
         <div><VatPanel vat={vat} /></div>

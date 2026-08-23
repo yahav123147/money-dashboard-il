@@ -174,6 +174,19 @@ function writeDemoConfig(entity) {
   const t = JSON.parse(readFileSync(tPath, 'utf8'));
   t.homeOffice.businessRatio = 0.3;
   writeFileSync(tPath, JSON.stringify(t, null, 2) + '\n');
+  const chPath = join(ROOT, 'config', 'channels.json');
+  const ch = JSON.parse(readFileSync(chPath, 'utf8'));
+  ch.channels = ['קורסים', 'מנויים', 'ייעוץ', 'מוצרים דיגיטליים'];
+  ch.productRules = [
+    { match: ['קורס'], channel: 'קורסים' }, { match: ['מנוי'], channel: 'מנויים' },
+    { match: ['ייעוץ'], channel: 'ייעוץ' }, { match: ['ספר'], channel: 'מוצרים דיגיטליים' },
+  ];
+  ch.bankRules = [
+    { match: ['סטודיו פילאטיס', 'מאפיית', 'קליניקת', 'יעוץ ארגוני'], channel: 'ייעוץ' },
+    { match: ['משרד אדריכלות', 'צילום אירועים'], channel: 'קורסים' },
+    { match: ['בית קפה'], channel: 'מנויים' },
+  ]; // 'חנות הצמחים' left unmatched on purpose, so the assign flow has something to show
+  writeFileSync(chPath, JSON.stringify(ch, null, 2) + '\n');
   const cPath = join(ROOT, 'config', 'cardcom.json');
   const c = JSON.parse(readFileSync(cPath, 'utf8'));
   c.enabled = true;

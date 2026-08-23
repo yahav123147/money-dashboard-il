@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { saveSecret as defaultSaveSecret, getSecret as defaultGetSecret } from './secrets.mjs';
+import { setChannels, loadChannelRules } from './channels.mjs';
 
 export const ENTITY_TYPES = {
   patur: { vatRate: 1.0 },
@@ -36,6 +37,8 @@ export function validate(body) {
     vatPeriodMonths = n;
   }
   const vatDueDay = numOrNull(b.vatDueDay, { min: 1, max: 28, label: 'יום דיווח מע"מ' }) ?? 15;
+  const channels = (Array.isArray(b.channels) ? b.channels : String(b.channels || '').split(/[,\n،]/))
+    .map((c) => String(c).trim()).filter(Boolean).slice(0, 20);
 
   const f = b.financy || {};
   const financy = { clientId: String(f.clientId || '').trim(), clientSecret: String(f.clientSecret || '').trim(), userId: String(f.userId || '').trim() };
@@ -53,7 +56,7 @@ export function validate(body) {
 
   return {
     entityType: b.entityType,
-    advanceRatePct, creditPoints, flagThresholdIls, vatPeriodMonths, vatDueDay,
+    advanceRatePct, creditPoints, flagThresholdIls, vatPeriodMonths, vatDueDay, channels,
     financy: financyGiven ? financy : null,
     cardcom: cardcomGiven ? { ...cardcom, productFieldId } : null,
   };
@@ -72,6 +75,7 @@ export function applySetup(body, { root, saveSecret = defaultSaveSecret } = {}) 
   s.vatPeriodMonths = a.vatPeriodMonths;
   s.vatDueDay = a.vatDueDay;
   writeJson(sPath, s);
+  if (a.channels.length) setChannels(a.channels, join(root, 'config', 'channels.json'));
 
   const stored = { financy: null, cardcom: null };
   if (a.financy) {
@@ -106,6 +110,7 @@ export function setupStatus({ root, getSecret = defaultGetSecret } = {}) {
     flagThresholdIls: s.flagThresholdIls ?? 5000,
     vatPeriodMonths: s.vatPeriodMonths ?? null,
     vatDueDay: s.vatDueDay ?? 15,
+    channels: loadChannelRules(join(root, 'config', 'channels.json')).channels,
     hasFinancy: !!(getSecret('FINANCY_CLIENT_ID') && getSecret('FINANCY_CLIENT_SECRET') && getSecret('FINANCY_USER_ID')),
     hasCardcom: !!(getSecret('CARDCOM_API_NAME') && getSecret('CARDCOM_API_PASSWORD')),
     cardcomEnabled: !!cardcom.enabled,
