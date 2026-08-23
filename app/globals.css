@@ -804,7 +804,7 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 .su-actions { display: flex; gap: 12px; align-items: center; margin-top: 22px; flex-wrap: wrap; }
 .su-btn { font: inherit; font-size: 0.92rem; padding: 10px 22px; border-radius: 100px; border: 1px solid var(--gold); background: var(--gold); color: #fff; cursor: pointer; }
 .su-btn:disabled { opacity: 0.5; cursor: default; }
-.masthead .linkish { font: inherit; font-size: 0.72rem; color: var(--ink-3); background: none; border: none; cursor: pointer; text-decoration: underline; }
+.linkish { font: inherit; font-size: 0.72rem; color: var(--ink-3); background: none; border: none; cursor: pointer; text-decoration: underline; }
 
 /* --- reconciliation --- */
 .rc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; margin-inline-end: 4px; vertical-align: middle; }
