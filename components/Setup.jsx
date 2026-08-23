@@ -10,6 +10,8 @@ export default function Setup({ status, onDone }) {
   const [entityType, setEntityType] = useState(status?.entityType || '');
   const [advanceRatePct, setAdvance] = useState(status?.advanceRatePct ?? '');
   const [creditPoints, setCredit] = useState(status?.creditPoints ?? '');
+  const [vatPeriod, setVatPeriod] = useState(status?.vatPeriodMonths == null ? 'auto' : String(status.vatPeriodMonths));
+  const [vatDueDay, setVatDueDay] = useState(status?.vatDueDay ?? 15);
   const [financy, setFinancy] = useState({ clientId: '', clientSecret: '', userId: '' });
   const [useCardcom, setUseCardcom] = useState(!!status?.cardcomEnabled);
   const [cardcom, setCardcom] = useState({ apiName: '', apiPassword: '', productFieldId: status?.productFieldId ?? 24 });
@@ -26,7 +28,7 @@ export default function Setup({ status, onDone }) {
     setBusy(true);
     try {
       const body = {
-        entityType, advanceRatePct, creditPoints,
+        entityType, advanceRatePct, creditPoints, vatPeriodMonths: vatPeriod, vatDueDay,
         financy: financy.clientId || financy.clientSecret || financy.userId ? financy : null,
         cardcom: useCardcom ? cardcom : null,
       };
@@ -81,6 +83,22 @@ export default function Setup({ status, onDone }) {
             inp({ type: 'number', step: '0.25', min: 0, max: 20, value: creditPoints, onChange: (e) => setCredit(e.target.value), placeholder: '2.25' }),
             'כל תושב מקבל לפחות 2.25. ריק = מינימום.') : null}
         </div>
+
+        {entityType && entityType !== 'patur' ? (
+          <>
+            <div className="su-label" style={{ marginTop: 14 }}>דיווח מע"מ</div>
+            <div className="su-radios" role="radiogroup" aria-label="תדירות דיווח מע״מ">
+              {[['auto', 'לפי המחזור (אוטומטי)'], ['1', 'חודשי'], ['2', 'דו-חודשי']].map(([v, l]) => (
+                <button type="button" key={v} className={`mp-chip${vatPeriod === v ? ' on' : ''}`} aria-pressed={vatPeriod === v} onClick={() => setVatPeriod(v)}>{l}</button>
+              ))}
+            </div>
+            <div className="su-grid">
+              {field('יום ההגשה בחודש העוקב',
+                inp({ type: 'number', min: 1, max: 28, value: vatDueDay, onChange: (e) => setVatDueDay(e.target.value) }),
+                'בדרך כלל 15. מדווחים בדיווח מפורט (874): 23. מחזור מעל ₪1,775,000 = חודשי.')}
+            </div>
+          </>
+        ) : null}
 
         <h3 className="su-h">2 · בנק דרך Open Finance (Financy)</h3>
         {hasFinancy ? <p className="su-ok">מפתחות Financy כבר שמורים. מלא שוב רק כדי להחליף.</p> : null}

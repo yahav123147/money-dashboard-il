@@ -17,5 +17,9 @@
   "entityType": null,
   "_entityType": "patur | murshe | company — נכתב ע\"י /setup. קובע את מנוע המס.",
   "creditPoints": null,
-  "_creditPoints": "נקודות זיכוי אישיות. null = מינימום תושב 2.25. נשאל ב-/setup."
+  "_creditPoints": "נקודות זיכוי אישיות. null = מינימום תושב 2.25. נשאל ב-/setup.",
+  "vatPeriodMonths": null,
+  "_vatPeriodMonths": "1 = דיווח מע\"מ חודשי, 2 = דו-חודשי. null = לפי המחזור: מעל vatMonthlyThreshold חודשי, אחרת דו-חודשי. חברה ועוסק מורשה בלבד. /setup שואל.",
+  "vatDueDay": 15,
+  "_vatDueDay": "יום בחודש העוקב להגשה ותשלום. 15 כרגיל; 23 למדווחים בדיווח מפורט (874)."
 }

@@ -106,10 +106,12 @@ export function seedDemo(db, entity = 'murshe', today = israelToday()) {
       row(`${m}-05`, -18000, 'משיכת בעלים', 'owner_draw', 'below_line');
     }
 
-    // The state: advances monthly, VAT bi-monthly, national insurance monthly.
+    // The state: advances monthly, VAT bi-monthly (periods Jan-Feb, Mar-Apr...
+    // paid on the 15th of the following month, i.e. odd months), national
+    // insurance monthly.
     row(`${m}-14`, -jitter(entity === 'patur' ? 520 : 2600, 0.1), 'מס הכנסה מקדמות', 'tax_advance', 'expense');
-    if (Number(m.slice(5)) % 2 === 0 && entity !== 'patur') {
-      row(`${m}-15`, -jitter(8900, 0.15), 'מע"מ תשלום', 'tax_vat', 'expense');
+    if (Number(m.slice(5)) % 2 === 1 && entity !== 'patur') {
+      row(`${m}-15`, -jitter(13200, 0.08), 'מע"מ תשלום', 'tax_vat', 'expense');
     }
     row(`${m}-16`, -jitter(entity === 'patur' ? 380 : 1750, 0.1), 'ביטוח לאומי', 'tax_social', 'expense');
 

@@ -109,5 +109,37 @@
     "https://roeahesbon.com/שיעורי-פחת/",
     "https://www.hagag-cpa.co.il/הוצאות-עסקיות/הוצאות-אחזקת-רכב/",
     "https://jpath.co.il/deductible-expenses-home-office/"
-  ]
+  ],
+  "vatInput": {
+    "_": "אילו הוצאות נושאות מע\"מ תשומות שניתן לקזז. לפי באקט בנק (bank) ולפי קטגוריית כרטיס (card). true = כולל מע\"מ ומקוזז; false = ללא מע\"מ (שכר, מסים, ביטוח, בנק, ספקים מחו\"ל). 0.66 = מע\"מ על רכב/טלפון מוכר בשני שלישים. הערכה בלבד; רו\"ח קובע.",
+    "bank": {
+      "team": false,
+      "tax_advance": false,
+      "tax_withholding": false,
+      "tax_vat": false,
+      "tax_social": false,
+      "pension": false,
+      "rent": true,
+      "suppliers_other": true,
+      "unclassified": true,
+      "cards": false,
+      "card_settlement": false,
+      "fx_conversion": false,
+      "invest": false,
+      "refund_processor": false
+    },
+    "card": {
+      "ads": true,
+      "profit_share": false,
+      "tools": true,
+      "fulfillment": true,
+      "processing": true,
+      "other_business": true,
+      "personal": false,
+      "charity": false,
+      "other_venture": false
+    },
+    "foreignVendorsNoVat": true,
+    "_foreignVendorsNoVat": "תנועות כרטיס במטבע זר נחשבות ללא מע\"מ תשומות (ספק זר). פרסום בפייסבוק/גוגל עם חשבונית ישראלית כולל מע\"מ; אם הכרטיס מחויב בדולר, זה לא ייספר. תקן ידנית אם צריך."
+  }
 }

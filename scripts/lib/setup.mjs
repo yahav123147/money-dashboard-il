@@ -28,6 +28,14 @@ export function validate(body) {
   const creditPoints = b.entityType === 'company' ? null
     : numOrNull(b.creditPoints, { min: 0, max: 20, label: 'נקודות זיכוי' });
   const flagThresholdIls = numOrNull(b.flagThresholdIls, { min: 0, max: 10_000_000, label: 'סף התראה' }) ?? 5000;
+  // VAT reporting: 1 / 2 months, or null = decide by turnover. Not for patur.
+  let vatPeriodMonths = null;
+  if (b.entityType !== 'patur' && b.vatPeriodMonths != null && b.vatPeriodMonths !== '' && b.vatPeriodMonths !== 'auto') {
+    const n = Number(b.vatPeriodMonths);
+    if (n !== 1 && n !== 2) throw new Error('תדירות מע"מ: חודשי, דו-חודשי או אוטומטי');
+    vatPeriodMonths = n;
+  }
+  const vatDueDay = numOrNull(b.vatDueDay, { min: 1, max: 28, label: 'יום דיווח מע"מ' }) ?? 15;
 
   const f = b.financy || {};
   const financy = { clientId: String(f.clientId || '').trim(), clientSecret: String(f.clientSecret || '').trim(), userId: String(f.userId || '').trim() };
@@ -45,7 +53,7 @@ export function validate(body) {
 
   return {
     entityType: b.entityType,
-    advanceRatePct, creditPoints, flagThresholdIls,
+    advanceRatePct, creditPoints, flagThresholdIls, vatPeriodMonths, vatDueDay,
     financy: financyGiven ? financy : null,
     cardcom: cardcomGiven ? { ...cardcom, productFieldId } : null,
   };
@@ -61,6 +69,8 @@ export function applySetup(body, { root, saveSecret = defaultSaveSecret } = {}) 
   s.advanceRatePct = a.advanceRatePct;
   s.creditPoints = a.creditPoints;
   s.flagThresholdIls = a.flagThresholdIls;
+  s.vatPeriodMonths = a.vatPeriodMonths;
+  s.vatDueDay = a.vatDueDay;
   writeJson(sPath, s);
 
   const stored = { financy: null, cardcom: null };
@@ -94,6 +104,8 @@ export function setupStatus({ root, getSecret = defaultGetSecret } = {}) {
     advanceRatePct: s.advanceRatePct ?? null,
     creditPoints: s.creditPoints ?? null,
     flagThresholdIls: s.flagThresholdIls ?? 5000,
+    vatPeriodMonths: s.vatPeriodMonths ?? null,
+    vatDueDay: s.vatDueDay ?? 15,
     hasFinancy: !!(getSecret('FINANCY_CLIENT_ID') && getSecret('FINANCY_CLIENT_SECRET') && getSecret('FINANCY_USER_ID')),
     hasCardcom: !!(getSecret('CARDCOM_API_NAME') && getSecret('CARDCOM_API_PASSWORD')),
     cardcomEnabled: !!cardcom.enabled,

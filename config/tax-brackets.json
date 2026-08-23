@@ -86,9 +86,14 @@
     }
   },
   "vat": {
-    "confidence": "secondary",
-    "rate": 0.18,
-    "_note": "עוסק פטור אינו גובה מע\"מ ואינו מקזז תשומות"
+    "monthlyReportingThreshold": 1775000,
+    "_monthlyReportingThreshold": "מחזור שנתי שמעליו דיווח מע\"מ חודשי (01.01.2026). מתחתיו דו-חודשי.",
+    "detailedReportingThresholdIndividual": 500000,
+    "_detailedReportingThresholdIndividual": "מ-2026 עוסק יחיד מעל סכום זה חייב דיווח מפורט (874), ועובר לדיווח חודשי עד ה-23.",
+    "_sources": [
+      "https://www.kolzchut.org.il/he/הגשת_דו\"חות_תקופתיים_ותשלום_מס_ערך_מוסף",
+      "https://ig-tax.co.il/service/דיווח-תשלום-דוח-מעמ/"
+    ]
   },
   "osekPatur": {
     "confidence": "secondary",

@@ -186,6 +186,7 @@ td.strong { color: var(--ink); font-weight: 400; }
   border: 1px solid var(--line); color: var(--ink-3); margin-inline-start: 8px; font-weight: 400;
 }
 .tag.gold { border-color: rgba(138, 106, 37, 0.4); color: var(--gold); }
+.tag.bad { border-color: rgba(154, 59, 46, 0.4); color: #9a3b2e; }
 
 .expand-row td { background: rgba(25, 22, 19, 0.03); white-space: normal; }
 .chips-line { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }

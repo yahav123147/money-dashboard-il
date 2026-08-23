@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Hero from '@/components/Hero';
 import Sales from '@/components/Sales';
 import Reconcile from '@/components/Reconcile';
+import VatPanel from '@/components/VatPanel';
+import AdvancesYtd from '@/components/AdvancesYtd';
 import AccountsCard from '@/components/AccountsCard';
 import PnlTable from '@/components/PnlTable';
 import Expenses from '@/components/Expenses';
@@ -15,7 +17,7 @@ import MonthPicker from '@/components/MonthPicker';
 import Setup from '@/components/Setup';
 import TaxView from '@/components/TaxView';
 
-const ENDPOINTS = ['overview', 'pnl', 'advances', 'cashflow', 'expenses', 'tax'];
+const ENDPOINTS = ['overview', 'pnl', 'advances', 'cashflow', 'expenses', 'tax', 'vat', 'advances-ytd'];
 const REFRESH_MS = 60_000;
 
 export default function Page() {
@@ -53,7 +55,8 @@ export default function Page() {
     setLastFetch(new Date());
   }, []);
 
-  const { overview, pnl, advances, cashflow, expenses, tax } = data;
+  const { overview, pnl, advances, cashflow, expenses, tax, vat } = data;
+  const advancesYtd = data['advances-ytd'];
 
   const pnlMonths = Array.isArray(pnl?.months) ? pnl.months : [];
   const monthList = pnlMonths.map((m) => m.month);
@@ -116,6 +119,11 @@ export default function Page() {
         <div className="g3-cell"><AdvancesGauge advances={advances} /></div>
         <div className={`g3-cell${isPast ? ' as-of-today' : ''}`}><Cashflow cashflow={cashflow} /></div>
         <div className={`g3-cell${isPast ? ' as-of-today' : ''}`}><AccountsCard overview={overview} /></div>
+      </div>
+
+      <div className="grid-2">
+        <div><VatPanel vat={vat} /></div>
+        <div><AdvancesYtd ytd={advancesYtd} /></div>
       </div>
 
       <PnlTable pnl={pnl} month={selMonth} />
