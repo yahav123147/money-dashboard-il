@@ -21,7 +21,7 @@ const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 // `ids: null` marks the catch-all: any category that is not team / tax / ads
 // lands there, which means a category added later shows up instead of vanishing.
 const GROUPS = [
-  { id: 'team', name: 'צוות ומנטורים', color: '#B5791C', ids: ['team'] },
+  { id: 'team', name: 'צוות', color: '#B5791C', ids: ['team'] },
   { id: 'tax', name: 'מיסים', color: '#2F6FA8', ids: TAX_IDS },
   { id: 'ads', name: 'פרסום', color: '#1E8F6E', ids: ['ads'] },
   { id: 'rest', name: 'תפעול ושאר', color: '#9B4A7A', ids: null },

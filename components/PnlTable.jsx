@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { fmtIls, hebMonth, signCls, EmptyState } from './format';
 
 const EXPENSE_LABELS = {
-  team: 'צוות ומנטורים',
+  team: 'צוות',
   cards: 'כרטיסי אשראי',
   tax_vat: 'מע"מ',
   tax_advance: 'מקדמות מס',

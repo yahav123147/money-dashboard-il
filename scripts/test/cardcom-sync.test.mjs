@@ -8,7 +8,7 @@ import { openDb } from '../lib/db.mjs';
 import { toRow, resolveProduct, toCardcomDate, CARDCOM_UPSERT_SQL } from '../cardcom-sync.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const CFG = { enabled: true, productFieldId: 24, amountNames: { 149: 'מנוי חודשי' }, unknownLabel: 'אחר' };
+const CFG = { enabled: true, productFieldId: 24, amountNames: { 199: 'מנוי חודשי' }, unknownLabel: 'אחר' };
 
 function tmpDb(t, name) {
   const p = join(ROOT, 'data', name);
@@ -37,8 +37,8 @@ test('toRow keeps only deal id, time, amount and product', () => {
 });
 
 test('resolveProduct: custom field, then amount rule, then unknown label', () => {
-  assert.equal(resolveProduct({ amount: 149, raw: 'X' }, CFG).source, 'custom_field');
-  assert.deepEqual(resolveProduct({ amount: 149, raw: null }, CFG), { product: 'מנוי חודשי', source: 'amount_rule' });
+  assert.equal(resolveProduct({ amount: 199, raw: 'X' }, CFG).source, 'custom_field');
+  assert.deepEqual(resolveProduct({ amount: 199, raw: null }, CFG), { product: 'מנוי חודשי', source: 'amount_rule' });
   assert.deepEqual(resolveProduct({ amount: 77, raw: null }, CFG), { product: 'אחר', source: 'unknown' });
 });
 
@@ -59,14 +59,14 @@ test('computeSalesRange groups by product and by day, rejects bad ranges', async
   const db = tmpDb(t, 'test-sales-range.db');
   const up = db.prepare(CARDCOM_UPSERT_SQL);
   up.run(toRow({ ...TX, TranzactionId: 1, CreateDate: '2026-03-04T09:00:00' }, CFG));
-  up.run(toRow({ ...TX, TranzactionId: 2, CreateDate: '2026-03-04T11:00:00', Amount: 149, CustomFields: [] }, CFG));
+  up.run(toRow({ ...TX, TranzactionId: 2, CreateDate: '2026-03-04T11:00:00', Amount: 199, CustomFields: [] }, CFG));
   up.run(toRow({ ...TX, TranzactionId: 3, CreateDate: '2026-03-05T11:00:00' }, CFG));
   const { computeSalesRange } = await import('../../lib/queries.js');
   const r = computeSalesRange(db, '2026-03-04', '2026-03-05');
-  assert.equal(r.total, 490 + 149 + 490);
+  assert.equal(r.total, 490 + 199 + 490);
   assert.equal(r.count, 3);
   assert.equal(r.byProduct['קורס דיגיטלי'].count, 2);
-  assert.deepEqual(r.days.map((d) => d.total), [639, 490]);
+  assert.deepEqual(r.days.map((d) => d.total), [689, 490]);
   const one = computeSalesRange(db, '2026-03-05', '2026-03-05');
   assert.equal(one.count, 1);
   assert.throws(() => computeSalesRange(db, '2026-03-06', '2026-03-05'));

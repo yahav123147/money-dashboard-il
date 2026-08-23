@@ -204,7 +204,7 @@ function shiftDate(iso, days) {
 
 function seedSales(db, today) {
   const PRODUCTS = [
-    ['קורס דיגיטלי', 490], ['מנוי חודשי', 149], ['ייעוץ שעה', 600], ['ספר דיגיטלי', 39],
+    ['קורס דיגיטלי', 490], ['מנוי חודשי', 199], ['ייעוץ שעה', 600], ['ספר דיגיטלי', 39],
   ];
   const ins = db.prepare(`
     INSERT OR REPLACE INTO cardcom_sales (deal_id, dt, date, amount, product, product_raw, product_source, updated_at)

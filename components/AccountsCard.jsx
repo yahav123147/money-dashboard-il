@@ -20,7 +20,7 @@ export default function AccountsCard({ overview }) {
       <div className="panel-head"><h2>חשבונות וכרטיסים</h2></div>
 
       <div className="kv">
-        <span className="k">חיוב כרטיסים קרוב (15 בחודש)</span>
+        <span className="k">חיוב כרטיסים קרוב</span>
         <span className={`v num ${negCls(-(Number(overview.upcomingCardCharge) || 0))}`.trim()}>
           {fmtIls(overview.upcomingCardCharge)}
         </span>

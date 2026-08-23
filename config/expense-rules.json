@@ -16,16 +16,11 @@
     },
     {
       "sub": "fulfillment",
-      "match": [
-        "פדקס"
-      ]
+      "match": []
     },
     {
       "sub": "processing",
-      "match": [
-        "פיי פלוס",
-        "PAYBOX"
-      ]
+      "match": []
     },
     {
       "sub": "charity",
@@ -33,9 +28,7 @@
     },
     {
       "sub": "other_venture",
-      "match": [
-        "Alibaba"
-      ]
+      "match": []
     },
     {
       "sub": "personal",
@@ -44,13 +37,7 @@
         "מפעל המים",
         "חברת החשמל",
         "בזק",
-        "YES",
-        "ELAL",
-        "AGODA",
-        "AIRBNB",
-        "פספורטקארד",
-        "Gett",
-        "ZARA"
+        "YES"
       ]
     },
     {

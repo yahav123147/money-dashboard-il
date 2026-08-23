@@ -10,13 +10,13 @@ const RULES = {
   channels: ['קורסים', 'מנויים'],
   productRules: [{ match: ['קורס'], channel: 'קורסים' }, { match: ['מנוי'], channel: 'מנויים' }],
   bankRules: [{ match: ['לקוח א'], channel: 'קורסים' }],
-  amountRules: [{ amount: 149, channel: 'מנויים' }],
+  amountRules: [{ amount: 199, channel: 'מנויים' }],
 };
 
 test('channelForProduct: name rule first, then exact amount, else null', () => {
   assert.equal(channelForProduct('הקורס הגדול', 999, RULES), 'קורסים');
-  assert.equal(channelForProduct('MNUY basic', 149, RULES), 'מנויים');
-  assert.equal(channelForProduct('', 149, RULES), 'מנויים');
+  assert.equal(channelForProduct('MNUY basic', 199, RULES), 'מנויים');
+  assert.equal(channelForProduct('', 199, RULES), 'מנויים');
   assert.equal(channelForProduct('משהו אחר', 77, RULES), null);
 });
 
@@ -32,11 +32,11 @@ test('addChannelRule / setChannels persist and replace', () => {
   assert.deepEqual(loadChannelRules(p).channels, ['א', 'ב']);
   addChannelRule({ kind: 'product', match: 'סדנה', channel: 'ג' }, p);
   addChannelRule({ kind: 'product', match: 'סדנה', channel: 'א' }, p); // re-assign replaces
-  addChannelRule({ kind: 'amount', amount: 35, channel: 'ב' }, p);
+  addChannelRule({ kind: 'amount', amount: 59, channel: 'ב' }, p);
   const cfg = loadChannelRules(p);
   assert.deepEqual(cfg.channels, ['א', 'ב', 'ג']);
   assert.deepEqual(cfg.productRules, [{ match: ['סדנה'], channel: 'א' }]);
-  assert.deepEqual(cfg.amountRules, [{ amount: 35, channel: 'ב' }]);
+  assert.deepEqual(cfg.amountRules, [{ amount: 59, channel: 'ב' }]);
   assert.throws(() => addChannelRule({ kind: 'bank', match: '', channel: 'א' }, p));
 });
 

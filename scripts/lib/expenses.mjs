@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const RULES_PATH = join(ROOT, 'config', 'expense-rules.json');
 
-// these three leave operating profit (owner's decision 10.08)
+// these three leave operating profit (kept out of operating profit by design)
 export const BELOW_LINE_SUBS = ['personal', 'charity', 'other_venture'];
 
 export const CATEGORY_LABELS = {

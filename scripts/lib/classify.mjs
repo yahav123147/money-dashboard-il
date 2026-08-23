@@ -1,4 +1,4 @@
-// Rules-driven classifier: port of the verified 09.08 shekel-exact analysis.
+// Rules-driven classifier.
 // classify.mjs is the engine; config/rules.json is the data.
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';

@@ -14,8 +14,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ENV_PATH = join(ROOT, '.env');
 
-// service-name mapping keeps Keychain entries compatible with an existing
-// manual setup (security add-generic-password -s financy-client-id ...).
+// Keychain service names, one per secret (security add-generic-password -s ...).
 const KEYCHAIN_SERVICE = {
   FINANCY_CLIENT_ID: 'financy-client-id',
   FINANCY_CLIENT_SECRET: 'financy-client-secret',
