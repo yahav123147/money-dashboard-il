@@ -19,12 +19,23 @@ export function dataPack(db, today, months = 13) {
     WHERE account_type='CHECKING' AND currency='ILS' AND month >= ? AND month <= ? AND status != 'PENDING'
     GROUP BY month, bucket_group, bucket ORDER BY month
   `).all(from, ym);
+  // Operating money (revenue / refunds / expenses / unclassified) apart from
+  // below-the-line and internal movements (securities, owner money, card
+  // settlements, FX): "how much came in" means the first, and the model
+  // should not have to subtract the second by eye.
+  const OPERATING = new Set(['revenue', 'refund', 'expense', 'unclassified']);
   for (const x of rows) {
-    const mo = byMonth[x.month] || (byMonth[x.month] = { in: 0, out: 0, inBy: {}, outBy: {} });
-    if (x.s >= 0) { mo.in += x.s; mo.inBy[x.bucket || x.bucket_group] = r((mo.inBy[x.bucket || x.bucket_group] || 0) + x.s); }
-    else { mo.out += -x.s; mo.outBy[x.bucket || x.bucket_group] = r((mo.outBy[x.bucket || x.bucket_group] || 0) - x.s); }
+    const mo = byMonth[x.month] || (byMonth[x.month] = { in: 0, out: 0, inBy: {}, outBy: {}, other: { in: 0, out: 0, by: {} } });
+    const key = x.bucket || x.bucket_group;
+    if (OPERATING.has(x.bucket_group)) {
+      if (x.s >= 0) { mo.in += x.s; mo.inBy[key] = r((mo.inBy[key] || 0) + x.s); }
+      else { mo.out += -x.s; mo.outBy[key] = r((mo.outBy[key] || 0) - x.s); }
+    } else {
+      if (x.s >= 0) mo.other.in += x.s; else mo.other.out += -x.s;
+      mo.other.by[key] = r((mo.other.by[key] || 0) + x.s);
+    }
   }
-  for (const mo of Object.values(byMonth)) { mo.in = r(mo.in); mo.out = r(mo.out); mo.net = r(mo.in - mo.out); }
+  for (const mo of Object.values(byMonth)) { mo.in = r(mo.in); mo.out = r(mo.out); mo.net = r(mo.in - mo.out); mo.other.in = r(mo.other.in); mo.other.out = r(mo.other.out); mo.totalIn = r(mo.in + mo.other.in); mo.totalOut = r(mo.out + mo.other.out); }
   const top = (sign) => db.prepare(`
     SELECT month, counterparty, SUM(amount) s, COUNT(*) n FROM bank_transactions
     WHERE account_type='CHECKING' AND currency='ILS' AND month >= ? AND month <= ? AND amount ${sign} 0 AND counterparty != ''
@@ -51,7 +62,7 @@ export function dataPack(db, today, months = 13) {
   const lastSync = db.prepare(`SELECT MAX(ts) ts FROM sync_log WHERE source='financy' AND ok=1`).get().ts;
   return {
     today, from, to: ym, currency: 'ILS',
-    note: 'in/out = תנועות עו"ש בש"ח, בלי תנועות ממתינות. out לפי bucket. cards = חיובי כרטיס לפי קטגוריה (נספרים בעו"ש כ-card_settlement). sales = עסקאות קארדקום (לא כסף בבנק עד הזיכוי).',
+    note: 'in/out = כסף תפעולי בעו"ש (הכנסות, הוצאות, החזרים, לא מסווג), בלי תנועות ממתינות. other = תנועות שאינן תפעוליות: ני"ע, כספי בעלים, חיובי כרטיס (card_settlement), המרות מט"ח; totalIn/totalOut כוללים אותן. cards = חיובי כרטיס לפי קטגוריה. sales = עסקאות קארדקום (לא כסף בבנק עד הזיכוי).',
     months: byMonth, topIn, topOut, cards: cardBy, sales, accounts, lastBankSync: lastSync,
   };
 }

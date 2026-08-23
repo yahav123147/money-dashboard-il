@@ -27,9 +27,12 @@ test('dataPack: per-month in/out by bucket, top names, pending excluded, 13-mont
   tx(db, 'o1', '2026-07-05', -8000, 'שכירות', 'rent', 'expense');
   tx(db, 'p1', '2026-08-30', -5000, 'עתידי', 'rent', 'expense', 'PENDING');
   tx(db, 'old', '2025-06-01', 99999, 'ישן', 'direct', 'revenue');
+  tx(db, 'sec', '2026-07-09', 500000, 'מכירת ני"ע', 'securities_sale', 'below_line');
   const pack = dataPack(db, '2026-08-10');
   assert.equal(pack.from, '2025-08');
-  assert.equal(pack.months['2026-07'].in, 42000);
+  assert.equal(pack.months['2026-07'].in, 42000, 'operating money only');
+  assert.equal(pack.months['2026-07'].other.in, 500000);
+  assert.equal(pack.months['2026-07'].totalIn, 542000);
   assert.equal(pack.months['2026-07'].out, 8000);
   assert.equal(pack.months['2026-07'].net, 34000);
   assert.equal(pack.months['2026-07'].outBy.rent, 8000);
