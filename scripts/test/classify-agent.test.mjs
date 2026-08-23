@@ -75,34 +75,6 @@ test('explicit classify rule beats the refund heuristic on the next full run', a
   assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='o1'`).get().bucket, 'refund_direct', 'without the explicit marker the heuristic still applies');
 });
 
-test('applyProposal stores the rule in SQLite, first in line, and reclassifies only that counterparty', async (t) => {
-  const { classifyAll, withExplicit } = await import('../lib/classify.mjs');
-  const db = tmpDb(t, 'test-cla2.db');
-  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
-  tx(db, 'a2', '2026-08-01', -3200, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
-  tx(db, 'z1', '2026-08-02', -9000, 'פרילנסר', 'team', 'expense'); // classified some other way: must not move
-  tx(db, 'y1', '2026-08-05', -2500, 'הוט מובייל שירותי ענן בעמ', 'unclassified', 'unclassified'); // shares the substring: history must not move
-  const res = applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' });
-  assert.deepEqual(res.rule, { match: ['הוט מובייל'], bucket: 'suppliers_other', group: 'expense' });
-  assert.equal(res.reclassified, 2);
-  const rows = db.prepare(`SELECT bucket, bucket_group FROM bank_transactions WHERE counterparty = 'הוט מובייל בעמ'`).all();
-  assert.ok(rows.every((r) => r.bucket === 'suppliers_other' && r.bucket_group === 'expense'));
-  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='z1'`).get().bucket, 'team');
-  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='y1'`).get().bucket_group, 'unclassified', 'substring neighbour untouched');
-  const merged = withExplicit(db, { inflows: [], outflows: [{ match: ['בעמ'], bucket: 'rent', group: 'expense' }] });
-  assert.equal(merged.outflows[0].source, 'classify', 'explicit rule goes first so it beats broad built-ins');
-  // a second decision on the same match replaces, not duplicates
-  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' });
-  assert.equal(db.prepare(`SELECT COUNT(*) n FROM classify_rules`).get().n, 1);
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'xx', bucket: 'nope', counterparty: 'xx' }));
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'סלקום', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }), /בשם המוטב/);
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: '__proto__', counterparty: 'הוט מובייל בעמ' }), /קטגוריה/);
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: 'constructor', counterparty: 'הוט מובייל בעמ' }), /קטגוריה/);
-  // the next full run (sync) keeps the decision, even with file rules that never heard of it
-  classifyAll(db, { inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } }, refundPairs: [], suppliers: [] });
-  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'rent', 'survives a full reclassify');
-});
-
 test('parseProposals keeps both sides of the same name', () => {
   const groups = [{ counterparty: 'דני', side: 'out', count: 1, total: -3000 }, { counterparty: 'דני', side: 'in', count: 1, total: 4000 }];
   const out = parseProposals(JSON.stringify([
@@ -154,22 +126,6 @@ test('approvals from two processes, concurrently with full reclassify runs, lose
 
 const FILE_RULES_MIN = { inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } }, refundPairs: [], suppliers: [] };
 
-test('newest explicit decision wins over an older broader one, also after a full reclassify', async (t) => {
-  const { classifyAll } = await import('../lib/classify.mjs');
-  const db = tmpDb(t, 'test-cla6.db');
-  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
-  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' });
-  tx(db, 'a2', '2026-08-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
-  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' });
-  classifyAll(db, FILE_RULES_MIN);
-  assert.deepEqual(db.prepare(`SELECT DISTINCT bucket FROM bank_transactions WHERE counterparty='הוט מובייל בעמ'`).all().map((r) => r.bucket), ['rent'], 'newer, more specific decision holds');
-  // re-approving the old one promotes it again
-  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' });
-  classifyAll(db, FILE_RULES_MIN);
-  assert.deepEqual(db.prepare(`SELECT DISTINCT bucket FROM bank_transactions WHERE counterparty='הוט מובייל בעמ'`).all().map((r) => r.bucket), ['suppliers_other']);
-  assert.equal(listRules(db)[0].match, 'הוט', 'list is newest-first');
-});
-
 test('classifyAll fails closed when the rules table cannot be read', async (t) => {
   const { classifyAll } = await import('../lib/classify.mjs');
   const db = tmpDb(t, 'test-cla7.db');
@@ -180,17 +136,84 @@ test('classifyAll fails closed when the rules table cannot be read', async (t) =
   assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'rent', 'nothing was rewritten');
 });
 
-test('removeRule undoes an approval: rule gone, its rows back to unclassified, other rows untouched', (t) => {
-  const db = tmpDb(t, 'test-cla8.db');
+
+test('applyProposal: rule in SQLite, history of that counterparty moves, neighbours and other rows do not', async (t) => {
+  const db = tmpDb(t, 'test-cla2.db');
   tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
-  tx(db, 'o1', '2026-06-01', -2900, 'הוט מובייל בעמ', 'suppliers_other', 'expense'); // different bucket: not this rule's doing
-  tx(db, 'z1', '2026-06-01', -5000, 'אחר', 'rent', 'expense');
-  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' });
-  const r = removeRule(db, { side: 'out', match: 'הוט מובייל' });
-  assert.equal(r.reverted, 1);
-  assert.equal(listRules(db).length, 0);
+  tx(db, 'a2', '2026-08-01', -3200, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  tx(db, 'z1', '2026-08-02', -9000, 'פרילנסר', 'unclassified', 'unclassified');
+  tx(db, 'y1', '2026-08-05', -2500, 'הוט מובייל שירותי ענן בעמ', 'unclassified', 'unclassified');
+  const res = applyProposal(db, { side: 'out', match: 'הוט מובייל בעמ', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  assert.deepEqual(res.rule, { match: ['הוט מובייל בעמ'], bucket: 'suppliers_other', group: 'expense' });
+  assert.equal(res.reclassified, 2);
+  assert.ok(db.prepare(`SELECT bucket FROM bank_transactions WHERE counterparty='הוט מובייל בעמ'`).all().every((r) => r.bucket === 'suppliers_other'));
+  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='z1'`).get().bucket_group, 'unclassified');
+  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='y1'`).get().bucket_group, 'unclassified', 'exact-name rule: neighbour untouched');
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'xx', bucket: 'nope', counterparty: 'xx' }));
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: '__proto__', counterparty: 'הוט מובייל בעמ' }), /קטגוריה/);
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: 'constructor', counterparty: 'הוט מובייל בעמ' }), /קטגוריה/);
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'סלקום', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }), /בשם המוטב/);
+});
+
+test('re-approval with a new category moves the history in the same call', (t) => {
+  const db = tmpDb(t, 'test-cla9.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  const res = applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  assert.equal(res.reclassified, 1, 'the already-classified row moved');
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'rent');
+  assert.equal(db.prepare(`SELECT COUNT(*) n FROM classify_rules`).get().n, 1);
+});
+
+test('newest explicit decision wins over an older broader one, immediately and after a full reclassify', async (t) => {
+  const { classifyAll } = await import('../lib/classify.mjs');
+  const db = tmpDb(t, 'test-cla6.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'rent', 'immediately');
+  classifyAll(db, FILE_RULES_MIN);
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'rent', 'after a sync');
+  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'suppliers_other', 're-approving the old one promotes it');
+  assert.equal(listRules(db)[0].match, 'הוט');
+});
+
+test('removeRule: exactly what the rule claimed falls back, nothing else (both directions)', (t) => {
+  const db = tmpDb(t, 'test-cla8.db');
+  // (a) a row already in the same bucket by another rule must NOT be reverted
+  const rules = { ...FILE_RULES_MIN, outflows: [{ match: ['הוט מובייל ישן'], bucket: 'rent', group: 'expense' }] };
+  tx(db, 'old', '2026-06-01', -2900, 'הוט מובייל ישן', 'unclassified', 'unclassified');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  // (b) a broad rule that also caught another counterparty must release it on undo
+  tx(db, 'b1', '2026-07-02', -4000, 'הוט שירותי ענן', 'unclassified', 'unclassified');
+  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }, rules);
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='b1'`).get().bucket, 'rent', 'broad rule caught the neighbour (by design: it is a substring rule)');
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='old'`).get().bucket, 'rent');
+  const r = removeRule(db, { side: 'out', match: 'הוט' }, rules);
+  assert.equal(r.reverted, 2, 'a1 and b1 fell back; old stayed');
   assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='a1'`).get().bucket_group, 'unclassified');
-  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='o1'`).get().bucket, 'suppliers_other');
-  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='z1'`).get().bucket, 'rent');
-  assert.throws(() => removeRule(db, { side: 'out', match: 'אין' }), /לא נמצא/);
+  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='b1'`).get().bucket_group, 'unclassified', 'no rule left to claim it');
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='old'`).get().bucket, 'rent', 'still classified by its own file rule');
+  assert.equal(listRules(db).length, 0);
+  assert.throws(() => removeRule(db, { side: 'out', match: 'אין' }, rules), /לא נמצא/);
+});
+
+test('priority migration: rules from before the column keep their re-approval order', async (t) => {
+  const Database = (await import('better-sqlite3')).default;
+  const { openDb } = await import('../lib/db.mjs');
+  const p = join(ROOT, 'data', 'test-cla-mig.db');
+  for (const x of ['', '-wal', '-shm']) rmSync(p + x, { force: true });
+  t.after(() => { for (const x of ['', '-wal', '-shm']) rmSync(p + x, { force: true }); });
+  const raw = new Database(p);
+  raw.exec(`CREATE TABLE classify_rules (side TEXT NOT NULL, match TEXT NOT NULL, bucket TEXT NOT NULL, bucket_group TEXT NOT NULL, counterparty TEXT, created_at TEXT, PRIMARY KEY (side, match))`);
+  raw.prepare(`INSERT INTO classify_rules VALUES ('out','הוט','suppliers_other','expense','x','2026-08-01 10:00:00')`).run();      // first approved
+  raw.prepare(`INSERT INTO classify_rules VALUES ('out','הוט מובייל','rent','expense','x','2026-08-02 10:00:00')`).run(); // approved later
+  raw.prepare(`UPDATE classify_rules SET created_at='2026-08-03 10:00:00' WHERE match='הוט'`).run();                        // then RE-approved (older rowid)
+  raw.close();
+  const db = openDb(p);
+  const rules = db.prepare('SELECT match, priority FROM classify_rules ORDER BY priority DESC').all();
+  assert.equal(rules[0].match, 'הוט', 're-approved rule is first despite the lower rowid');
+  assert.deepEqual(rules.map((r) => r.priority), [2, 1]);
+  db.close();
 });

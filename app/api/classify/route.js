@@ -26,8 +26,18 @@ export async function GET() {
 export async function POST(req) {
   let body; try { body = await req.json(); } catch { body = {}; }
   if (body.action === 'undo') {
-    try { return Response.json({ ok: true, ...removeRule(getDb(), { side: body.side, match: body.match }) }); }
-    catch (err) { return Response.json({ error: String(err?.message || err) }, { status: 400 }); }
+    try {
+      const res = removeRule(getDb(), { side: body.side, match: body.match });
+      // The proposal behind this rule is open again: shown now, and re-proposed by the next run.
+      const saved0 = load();
+      if (saved0 && Array.isArray(saved0.proposals)) {
+        for (const p of saved0.proposals) if (p.side === res.removed.side && p.counterparty === res.removed.counterparty && p.status === 'approved') { p.status = 'pending'; delete p.appliedAt; delete p.reclassified; }
+        mkdirSync(DIR, { recursive: true });
+        const tmp = `${FILE}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+        writeFileSync(tmp, JSON.stringify(saved0, null, 1)); renameSync(tmp, FILE);
+      }
+      return Response.json({ ok: true, ...res });
+    } catch (err) { return Response.json({ error: String(err?.message || err) }, { status: 400 }); }
   }
   const saved = load();
   if (!saved || !Array.isArray(saved.proposals)) return Response.json({ error: 'אין הצעות; הרץ npm run classify' }, { status: 400 });

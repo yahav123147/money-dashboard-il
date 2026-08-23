@@ -161,8 +161,11 @@ export function seedDemo(db, entity = 'murshe', today = israelToday()) {
   return { rows: seq, entity };
 }
 
+// Tests point this at a scratch directory; real runs use config/.
+const CONFIG_DIR = process.env.MONEY_CONFIG_DIR || join(ROOT, 'config');
+
 function writeDemoConfig(entity) {
-  const sPath = join(ROOT, 'config', 'settings.json');
+  const sPath = join(CONFIG_DIR, 'settings.json');
   const s = JSON.parse(readFileSync(sPath, 'utf8'));
   s.entityType = entity;
   s.vatRate = entity === 'patur' ? 1.0 : 1.18;
@@ -170,11 +173,11 @@ function writeDemoConfig(entity) {
   s.creditPoints = entity === 'company' ? null : 2.25;
   writeFileSync(sPath, JSON.stringify(s, null, 2) + '\n');
 
-  const tPath = join(ROOT, 'config', 'tax-rules.json');
+  const tPath = join(CONFIG_DIR, 'tax-rules.json');
   const t = JSON.parse(readFileSync(tPath, 'utf8'));
   t.homeOffice.businessRatio = 0.3;
   writeFileSync(tPath, JSON.stringify(t, null, 2) + '\n');
-  const chPath = join(ROOT, 'config', 'channels.json');
+  const chPath = join(CONFIG_DIR, 'channels.json');
   const ch = JSON.parse(readFileSync(chPath, 'utf8'));
   ch.channels = ['קורסים', 'מנויים', 'ייעוץ', 'מוצרים דיגיטליים'];
   ch.productRules = [
@@ -187,7 +190,19 @@ function writeDemoConfig(entity) {
     { match: ['בית קפה'], channel: 'מנויים' },
   ]; // 'חנות הצמחים' left unmatched on purpose, so the assign flow has something to show
   writeFileSync(chPath, JSON.stringify(ch, null, 2) + '\n');
-  const cPath = join(ROOT, 'config', 'cardcom.json');
+  // Classification rules for the demo's own vendors, so a full reclassify
+  // (an approval, an undo, a sync) reproduces exactly what the seed wrote.
+  const rPath = join(CONFIG_DIR, 'rules.json');
+  const rules = JSON.parse(readFileSync(rPath, 'utf8'));
+  const demoRules = [
+    { match: ['פרילנס עיצוב ותוכן'], bucket: 'team', group: 'expense', demo: true },
+    { match: ['משיכת בעלים'], bucket: 'owner_draw', group: 'below_line', demo: true },
+    { match: ['הדפסות מהיר', 'שליחויות אקספרס'], bucket: 'unclassified', group: 'unclassified', demo: true },
+  ];
+  rules.outflows = [...demoRules, ...(rules.outflows || []).filter((r) => !r.demo)];
+  rules.inflows = [{ match: ['קארדקום'], bucket: 'revenue', group: 'revenue', demo: true }, ...(rules.inflows || []).filter((r) => !r.demo)];
+  writeFileSync(rPath, JSON.stringify(rules, null, 2) + '\n');
+  const cPath = join(CONFIG_DIR, 'cardcom.json');
   const c = JSON.parse(readFileSync(cPath, 'utf8'));
   c.enabled = true;
   c.settlement = { ...(c.settlement || {}), feePct: 1.2 };
@@ -251,18 +266,18 @@ function main() {
   }
   const db = openDb();
   try {
-    const existing = db.prepare('SELECT COUNT(*) n FROM bank_transactions').get().n
-      + db.prepare('SELECT COUNT(*) n FROM classify_rules').get().n;
-    const settings = JSON.parse(readFileSync(join(ROOT, 'config', 'settings.json'), 'utf8'));
+    const TABLES = ['bank_transactions', 'classify_rules', 'cardcom_sales', 'accounts', 'balance_snapshots', 'counterparties', 'sync_log'];
+    const existing = TABLES.reduce((n, t) => n + db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n, 0);
+    const settings = JSON.parse(readFileSync(join(CONFIG_DIR, 'settings.json'), 'utf8'));
     if ((existing > 0 || settings.entityType) && !force) {
-      console.error(`יש כבר נתונים (${existing} תנועות/חוקים) או קונפיג מוגדר (entityType=${settings.entityType}).`);
+      console.error(`יש כבר נתונים (${existing} רשומות) או קונפיג מוגדר (entityType=${settings.entityType}).`);
       console.error('מצב הדגמה לא דורס נתונים אמיתיים. אם זו באמת הכוונה: npm run demo -- --force');
       console.error('לאיפוס מלא: git checkout config/ && rm -f data/money.db*');
       process.exitCode = 1;
       return;
     }
     if (force && existing > 0) {
-      db.exec('BEGIN IMMEDIATE; DELETE FROM bank_transactions; DELETE FROM accounts; DELETE FROM balance_snapshots; DELETE FROM counterparties; DELETE FROM cardcom_sales; DELETE FROM classify_rules; DELETE FROM sync_log; COMMIT;');
+      db.exec('BEGIN IMMEDIATE; ' + TABLES.map((t) => `DELETE FROM ${t};`).join(' ') + ' COMMIT;');
     }
     const today = israelToday();
     const { rows } = seedDemo(db, entity, today);

@@ -16,7 +16,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SETTINGS = join(ROOT, 'config', 'settings.json');
 export const LOGIN_CMD = 'claude auth login --claudeai';
 
-export const DATA_NOTICE = `הסוכן שולח ל-Claude תמצית של הנתונים שלך דרך מנוי Claude Code שלך: שמות מוטבים, תאריכים, סכומים, תיאורי תנועות ודוגמאות מחוקי הסיווג. לא נשלחות סיסמאות או מפתחות. האישור נשמר ב-config/settings.json (agentsSendDataToClaude).`;
+export const DATA_NOTICE = `הסוכן שולח ל-Claude תמצית של הנתונים שלך: שמות מוטבים, תאריכים, סכומים, תיאורי תנועות ודוגמאות מחוקי הסיווג. לא נשלחות סיסמאות או מפתחות. ב-npm run זה עובר דרך מנוי Claude Code שלך אחרי בדיקת החיבור; מתוך סשן Claude Code פתוח (אם התרת agentsAllowInteractive) זה עובר דרך הסשן שפתחת, שאת הספק שלו הסקריפט לא יכול לאמת. האישור נשמר ב-config/settings.json (agentsSendDataToClaude).`;
 
 // Settings files Claude Code would load. Any provider/credential knob in them
 // (env.ANTHROPIC_*, apiKeyHelper, Bedrock/Vertex/Foundry switches) means a run
@@ -26,7 +26,10 @@ export const DATA_NOTICE = `הסוכן שולח ל-Claude תמצית של הנת
 const FORBIDDEN_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_API|CLAUDE_CODE_PROVIDER|CLAUDE_CODE_SUBPROCESS_ENV_SCRUB|AWS_BEARER_TOKEN|AZURE_|GOOGLE_APPLICATION|CLOUD_ML_REGION)/;
 export function settingsFiles(root = ROOT) {
   const files = [];
-  for (const dir of ['/Library/Application Support/ClaudeCode', '/etc/claude-code']) {
+  const managedDirs = process.platform === 'win32'
+    ? [join(process.env.ProgramFiles || 'C:\\Program Files', 'ClaudeCode'), join(process.env.ProgramData || 'C:\\ProgramData', 'ClaudeCode')]
+    : ['/Library/Application Support/ClaudeCode', '/etc/claude-code'];
+  for (const dir of managedDirs) {
     files.push(join(dir, 'managed-settings.json'));
     const d = join(dir, 'managed-settings.d');
     try { for (const f of readdirSync(d)) if (f.endsWith('.json')) files.push(join(d, f)); } catch { /* none */ }
@@ -45,12 +48,20 @@ export function findProviderOverrides(files = settingsFiles()) {
   }
   return found;
 }
-// macOS MDM profiles can carry Claude Code settings that no file shows.
-// We cannot parse them reliably, so their presence alone is a refusal.
+// Host-managed settings that no file shows: macOS MDM profiles, Windows
+// registry policies. We cannot parse them reliably, so presence = refusal.
 export function mdmManagedSettingsPresent() {
-  if (process.platform !== 'darwin') return false;
-  const r = spawnSync('defaults', ['read', 'com.anthropic.claudecode'], { encoding: 'utf8', timeout: 10000 });
-  return r.status === 0 && (r.stdout || '').trim().length > 0;
+  if (process.platform === 'darwin') {
+    const r = spawnSync('defaults', ['read', 'com.anthropic.claudecode'], { encoding: 'utf8', timeout: 10000 });
+    return r.status === 0 && (r.stdout || '').trim().length > 0;
+  }
+  if (process.platform === 'win32') {
+    for (const key of ['HKLM\\SOFTWARE\\Policies\\ClaudeCode', 'HKCU\\SOFTWARE\\Policies\\ClaudeCode']) {
+      const r = spawnSync('reg', ['query', key], { encoding: 'utf8', timeout: 10000 });
+      if (r.status === 0 && (r.stdout || '').trim().length > 0) return true;
+    }
+  }
+  return false;
 }
 
 // Snapshots are the financial data; a failed gate must not leave one behind
@@ -64,19 +75,20 @@ function readAuthStatus() {
 }
 
 // The one entry point the scripts call. Exit code 2 on any failure.
-export function preflight(argv = process.argv) {
-  const ok = ensureConsent(argv) && ensureSubscription();
-  if (!ok) dropSnapshots();
+export function preflight(argv = process.argv, { settingsPath = SETTINGS, root = ROOT } = {}) {
+  let ok = false;
+  try { ok = ensureConsent(argv, settingsPath) && ensureSubscription({ settingsPath }); }
+  finally { if (!ok) dropSnapshots(root); } // also when a check threw
   return ok;
 }
 
-export function ensureConsent(argv = process.argv) {
-  const s = JSON.parse(readFileSync(SETTINGS, 'utf8'));
+export function ensureConsent(argv = process.argv, settingsPath = SETTINGS) {
+  const s = JSON.parse(readFileSync(settingsPath, 'utf8'));
   if (s.agentsSendDataToClaude === true) return true;
   if (argv.includes('--yes')) {
     s.agentsSendDataToClaude = true;
     s._agentsSendDataToClaude = 'true = אישרת שהסוכנים (/review, /classify) שולחים תמצית של הנתונים ל-Claude דרך המנוי שלך. false = הסוכנים מסרבים לרוץ.';
-    writeFileSync(SETTINGS, JSON.stringify(s, null, 2) + '\n');
+    writeFileSync(settingsPath, JSON.stringify(s, null, 2) + '\n');
     return true;
   }
   console.error(`\n${DATA_NOTICE}\n\nכדי לאשר פעם אחת: הוסף --yes לפקודה (למשל npm run review -- --yes), או ערוך config/settings.json.\n`);

@@ -48,7 +48,7 @@ if (fresh === null) fail('Claude לא החזיר בלוק JSON תקין');
 let prev = [];
 try { prev = JSON.parse(readFileSync(join(OUT, 'proposals.json'), 'utf8')).proposals || []; } catch { /* first run */ }
 const k = (p) => p.side + '|' + p.counterparty;
-const decided = new Map(prev.filter((p) => p.status !== 'pending').map((p) => [k(p), p]));
+const decided = new Map(prev.filter((p) => p.status === 'approved' || p.status === 'rejected').map((p) => [k(p), p]));
 const proposals = fresh.map((p) => decided.get(k(p)) || p);
 writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: true, proposals, totalGroups: u.totalGroups, totalRows: u.totalRows, totalAmount: u.totalAmount });
 writeJsonAtomic(join(OUT, 'last-run.json'), { date: today, ts: new Date().toISOString(), ok: true, count: proposals.length });

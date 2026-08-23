@@ -3,7 +3,7 @@
 // itself (Claude, through the user's subscription) only ever sees the
 // groups below and returns JSON; every write goes through applyProposal,
 // after a person approved it in the dashboard or in /classify.
-import { loadRules, explicitRules } from './classify.mjs';
+import { loadRules, explicitRules, withExplicit, classifyAllLocked } from './classify.mjs';
 
 
 // The vocabulary the agent may use for bank rows. Anything else is rejected.
@@ -100,11 +100,12 @@ export function parseProposals(text, groups) {
   return out;
 }
 
-// One approved proposal = one SQLite transaction: the rule row and the
-// history update commit together or not at all. No file, no lock file, no
-// window between "rows classified" and "rule published". The history update
-// is by exact name + direction, and only rows still unclassified.
-export function applyProposal(db, { side, match, bucket, counterparty }) {
+// A rule change and the rows are one unit: insert (or re-promote) the rule,
+// then re-run the whole classification inside the same transaction. Rows
+// are therefore always exactly what the rules say: a re-approval that
+// changes the category moves its history too, a broader older rule never
+// wins, and nothing depends on remembering which rule touched which row.
+export function applyProposal(db, { side, match, bucket, counterparty }, fileRules = loadRules()) {
   if (side !== 'in' && side !== 'out') throw new Error('כיוון לא תקין');
   const vocab = BANK_BUCKETS[side];
   if (typeof bucket !== 'string' || !Object.hasOwn(vocab, bucket)) throw new Error('קטגוריה לא מוכרת');
@@ -113,48 +114,44 @@ export function applyProposal(db, { side, match, bucket, counterparty }) {
   if (!name) throw new Error('חסר שם מוטב');
   const m = String(match || '').trim();
   if (m.length < 2) throw new Error('טקסט התאמה קצר מדי');
-  // A rule that does not match its own counterparty would be undone by the
-  // next full reclassify; refuse it here, not only in the parser.
   if (!name.includes(m)) throw new Error('טקסט ההתאמה חייב להופיע בשם המוטב');
-  const n = db.transaction(() => {
+  return db.transaction(() => {
     const priority = db.prepare('SELECT COALESCE(MAX(priority), 0) + 1 p FROM classify_rules').get().p;
     db.prepare(`
       INSERT INTO classify_rules (side, match, bucket, bucket_group, counterparty, created_at, priority)
       VALUES (?, ?, ?, ?, ?, datetime('now'), ?)
       ON CONFLICT(side, match) DO UPDATE SET bucket=excluded.bucket, bucket_group=excluded.bucket_group, counterparty=excluded.counterparty, created_at=excluded.created_at, priority=excluded.priority
     `).run(side, m, bucket, group, name, priority);
-    return db.prepare(`
-      UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now')
-      WHERE account_type='CHECKING' AND currency='ILS' AND bucket_group='unclassified'
-        AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
-        AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
-    `).run(bucket, group, side, side, name).changes;
+    const changed = reclassifyCounting(db, fileRules);
+    return { rule: { match: [m], bucket, group }, reclassified: changed };
   }).immediate();
-  return { rule: { match: [m], bucket, group }, reclassified: n };
 }
 
 // The explicit rules, newest decision first, for the panel.
 export function listRules(db) {
-  return db.prepare('SELECT side, match, bucket, bucket_group AS "group", counterparty, created_at AS createdAt, priority FROM classify_rules ORDER BY priority DESC').all();
+  return db.prepare('SELECT side, match, bucket, bucket_group AS "group", counterparty, created_at AS createdAt, priority FROM classify_rules ORDER BY priority DESC, created_at DESC').all();
 }
 
-// Undo a rule: delete it and put the rows it classified back to unclassified
-// (by exact counterparty + direction + bucket, only rows the rule could have
-// produced), in one transaction. A full reclassify afterwards lets older
-// rules and built-ins claim what they match.
-export function removeRule(db, { side, match }, fileRules) {
+// Undo a rule: delete it and re-run the classification in the same
+// transaction, so whatever that rule had claimed falls back to older rules
+// and built-ins, and nothing else moves.
+export function removeRule(db, { side, match }, fileRules = loadRules()) {
   if (side !== 'in' && side !== 'out') throw new Error('כיוון לא תקין');
   const m = String(match || '').trim();
   return db.transaction(() => {
-    const r = db.prepare('SELECT counterparty, bucket, bucket_group FROM classify_rules WHERE side=? AND match=?').get(side, m);
+    const r = db.prepare('SELECT counterparty, bucket FROM classify_rules WHERE side=? AND match=?').get(side, m);
     if (!r) throw new Error('החוק לא נמצא');
     db.prepare('DELETE FROM classify_rules WHERE side=? AND match=?').run(side, m);
-    const n = db.prepare(`
-      UPDATE bank_transactions SET bucket='unclassified', bucket_group='unclassified', updated_at=datetime('now')
-      WHERE account_type='CHECKING' AND currency='ILS' AND bucket=? AND bucket_group=?
-        AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
-        AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
-    `).run(r.bucket, r.bucket_group, side, side, r.counterparty || '').changes;
-    return { removed: { side, match: m, bucket: r.bucket }, reverted: n };
+    const changed = reclassifyCounting(db, fileRules);
+    return { removed: { side, match: m, bucket: r.bucket, counterparty: r.counterparty }, reverted: changed };
   }).immediate();
+}
+
+// Full reclassify inside the caller's transaction; returns how many rows changed bucket.
+function reclassifyCounting(db, fileRules) {
+  const before = new Map(db.prepare('SELECT id, bucket FROM bank_transactions').all().map((x) => [x.id, x.bucket]));
+  classifyAllLocked(db, withExplicit(db, fileRules));
+  let changed = 0;
+  for (const x of db.prepare('SELECT id, bucket FROM bank_transactions').all()) if (before.get(x.id) !== x.bucket) changed += 1;
+  return changed;
 }

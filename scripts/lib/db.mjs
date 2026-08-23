@@ -48,7 +48,14 @@ export function openDb(path = DB_PATH) {
     db.exec('ALTER TABLE bank_transactions ADD COLUMN expense_channel TEXT');
   }
   const crCols = db.prepare('PRAGMA table_info(classify_rules)').all().map((c) => c.name);
-  if (!crCols.includes('priority')) db.exec('ALTER TABLE classify_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0');
+  if (!crCols.includes('priority')) {
+    db.exec('ALTER TABLE classify_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0');
+    // Existing rules: order by when they were last approved, so a re-approval
+    // made before the upgrade still beats the older decision.
+    db.exec(`UPDATE classify_rules SET priority = (
+      SELECT COUNT(*) FROM classify_rules c2
+      WHERE c2.created_at < classify_rules.created_at OR (c2.created_at = classify_rules.created_at AND c2.rowid < classify_rules.rowid)) + 1`);
+  }
   const ccCols = db.prepare('PRAGMA table_info(cardcom_sales)').all().map((c) => c.name);
   for (const [col, type] of [['acquirer', 'TEXT'], ['payments', 'INTEGER'], ['first_payment', 'REAL'], ['const_payment', 'REAL']]) {
     if (!ccCols.includes(col)) db.exec(`ALTER TABLE cardcom_sales ADD COLUMN ${col} ${type}`);

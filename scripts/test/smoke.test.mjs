@@ -114,29 +114,37 @@ test('demo seed lights every panel and stays deterministic', async (t) => {
   assert.deepEqual(total(db3), total(db));
 });
 
-test('demo seed: a classify rule alone blocks the guard; --force wipes rules with the rest', async (t) => {
+test('demo seed: any real record blocks the guard; --force wipes every table; config is written to an isolated dir', async (t) => {
   const { spawnSync } = await import('node:child_process');
   const { openDb } = await import('../lib/db.mjs');
-  const { applyProposal } = await import('../lib/classify-agent.mjs');
+  const { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } = await import('node:fs');
   const DB = join(ROOT, 'data', 'test-demo-guard.db');
+  const CFG = join(ROOT, 'data', 'test-demo-config');
   for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true });
-  t.after(() => { for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true }); });
+  rmSync(CFG, { recursive: true, force: true }); mkdirSync(CFG, { recursive: true });
+  for (const f of readdirSync(join(ROOT, 'config'))) if (f.endsWith('.json')) writeFileSync(join(CFG, f), readFileSync(join(ROOT, 'config', f)));
+  const realBefore = Object.fromEntries(readdirSync(join(ROOT, 'config')).filter((f) => f.endsWith('.json')).map((f) => [f, readFileSync(join(ROOT, 'config', f), 'utf8')]));
+  t.after(() => { for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true }); rmSync(CFG, { recursive: true, force: true }); });
   const db = openDb(DB);
-  db.prepare(`INSERT INTO bank_transactions (id, account_type, currency, amount, counterparty, raw_desc, date, month, bucket, bucket_group) VALUES ('r1','CHECKING','ILS',-3000,'ספק אמיתי','','2026-07-01','2026-07','unclassified','unclassified')`).run();
-  applyProposal(db, { side: 'out', match: 'ספק אמיתי', bucket: 'rent', counterparty: 'ספק אמיתי' });
-  db.prepare(`DELETE FROM bank_transactions`).run(); // only the rule remains
+  db.prepare(`INSERT INTO cardcom_sales (deal_id, date, amount) VALUES ('d1', '2026-07-01', 100)`).run(); // only a sale, no bank rows, no rules
   db.close();
-  // the seed rewrites config/; restore the exact bytes afterwards (never git checkout: it would drop uncommitted work)
-  const { readFileSync, writeFileSync, readdirSync } = await import('node:fs');
-  const cfgDir = join(ROOT, 'config');
-  const before = Object.fromEntries(readdirSync(cfgDir).filter((f) => f.endsWith('.json')).map((f) => [f, readFileSync(join(cfgDir, f))]));
-  t.after(() => { for (const [f, buf] of Object.entries(before)) writeFileSync(join(cfgDir, f), buf); });
-  const env = { ...process.env, MONEY_DB_PATH: DB, SECRETS_DISABLE_KEYCHAIN: '1' };
+  const env = { ...process.env, MONEY_DB_PATH: DB, MONEY_CONFIG_DIR: CFG, SECRETS_DISABLE_KEYCHAIN: '1' };
   const r1 = spawnSync(process.execPath, [join(ROOT, 'scripts', 'demo-seed.mjs')], { env, encoding: 'utf8', cwd: ROOT });
-  assert.notEqual(r1.status, 0, 'guard must refuse: a real rule is data');
-  assert.match(r1.stderr, /חוקים/);
-  assert.equal(openDb(DB).prepare('SELECT COUNT(*) n FROM classify_rules').get().n, 1, 'untouched');
+  assert.notEqual(r1.status, 0, 'guard must refuse: a sale is data');
   const r2 = spawnSync(process.execPath, [join(ROOT, 'scripts', 'demo-seed.mjs'), '--force'], { env, encoding: 'utf8', cwd: ROOT });
   assert.equal(r2.status, 0, r2.stderr);
-  assert.equal(openDb(DB).prepare('SELECT COUNT(*) n FROM classify_rules').get().n, 0, 'rules wiped by --force');
+  const db2 = openDb(DB);
+  assert.equal(db2.prepare(`SELECT COUNT(*) n FROM cardcom_sales WHERE deal_id='d1'`).get().n, 0, 'real sale wiped by --force');
+  assert.ok(db2.prepare('SELECT COUNT(*) n FROM cardcom_sales').get().n > 0, 'demo sales present');
+  // a full reclassify reproduces the seeded buckets exactly (demo rules were written)
+  const { classifyAll, loadRules } = await import('../lib/classify.mjs');
+  const before = db2.prepare('SELECT id, bucket FROM bank_transactions ORDER BY id').all();
+  classifyAll(db2, loadRules(join(CFG, 'rules.json')));
+  const after = db2.prepare('SELECT id, bucket FROM bank_transactions ORDER BY id').all();
+  assert.deepEqual(after, before, 'reclassify is a no-op on demo data');
+  db2.close();
+  // the real config directory was never touched
+  for (const [f, txt] of Object.entries(realBefore)) assert.equal(readFileSync(join(ROOT, 'config', f), 'utf8'), txt, `config/${f} untouched`);
+  assert.equal(JSON.parse(readFileSync(join(CFG, 'settings.json'), 'utf8')).entityType, 'murshe', 'demo config went to the isolated dir');
+  assert.ok(existsSync(join(CFG, 'rules.json')));
 });

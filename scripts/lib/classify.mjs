@@ -19,7 +19,7 @@ export function loadRules(path = RULES_PATH) {
 // latest explicit decision always beats an older, broader one.
 // Fails closed: if the table cannot be read, nothing is reclassified.
 export function explicitRules(db) {
-  return db.prepare('SELECT side, match, bucket, bucket_group, priority FROM classify_rules ORDER BY priority DESC, rowid DESC').all();
+  return db.prepare('SELECT side, match, bucket, bucket_group, priority FROM classify_rules ORDER BY priority DESC, created_at DESC, rowid DESC').all();
 }
 export function withExplicit(db, rules) {
   const ex = explicitRules(db);
@@ -137,7 +137,9 @@ export function classifyAll(db, fileRules = loadRules()) {
   return db.transaction(() => classifyAllLocked(db, withExplicit(db, fileRules))).immediate();
 }
 
-function classifyAllLocked(db, rules) {
+// The body, for callers that already hold the write transaction (an
+// approval or an undo re-runs the whole classification in its own tx).
+export function classifyAllLocked(db, rules) {
   const rows = db.prepare(`
     SELECT id, account_type, amount, currency, counterparty, raw_desc, date
     FROM bank_transactions

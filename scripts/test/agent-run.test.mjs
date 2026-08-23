@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasHeadings, findProviderOverrides, dropSnapshots, ensureSubscription, settingsFiles } from '../lib/agent-run.mjs';
+import { hasHeadings, findProviderOverrides, dropSnapshots, ensureSubscription, settingsFiles, preflight } from '../lib/agent-run.mjs';
 import { writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,4 +94,14 @@ test('findProviderOverrides: policyHelper is an override; settingsFiles include 
   const files = settingsFiles();
   assert.ok(files.some((f) => f.includes('managed-settings.json')));
   assert.ok(files.some((f) => f.endsWith('.claude/settings.json')));
+});
+
+test('preflight drops snapshots even when a check throws', (t) => {
+  quiet(t);
+  const root = join(ROOT, 'data', 'test-root2');
+  for (const d of ['review', 'classify']) { mkdirSync(join(root, 'data', d), { recursive: true }); writeFileSync(join(root, 'data', d, 'snapshot.json'), '{}'); }
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // settings path that does not exist makes ensureConsent throw inside preflight
+  assert.throws(() => preflight([], { settingsPath: join(root, 'nope.json'), root }));
+  assert.equal(existsSync(join(root, 'data', 'review', 'snapshot.json')), false);
 });
