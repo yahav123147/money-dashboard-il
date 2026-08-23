@@ -76,12 +76,12 @@ export function classifyRow(row, rules, expRules = loadExpenseRules()) {
   const desc = row.raw_desc;
   if (row.amount >= 0) {
     for (const rule of rules.inflows) {
-      if (matchRule(rule, text, desc, rules)) return { bucket: rule.bucket, group: rule.group };
+      if (matchRule(rule, text, desc, rules)) return { bucket: rule.bucket, group: rule.group, explicit: rule.source === 'classify' };
     }
     return { ...rules.inflowDefault };
   }
   for (const rule of rules.outflows) {
-    if (matchRule(rule, text, desc, rules)) return { bucket: rule.bucket, group: rule.group };
+    if (matchRule(rule, text, desc, rules)) return { bucket: rule.bucket, group: rule.group, explicit: rule.source === 'classify' };
   }
   const d = rules.outflowDefaults;
   return Math.abs(row.amount) >= d.largeThreshold ? { ...d.large } : { ...d.small };
@@ -159,6 +159,7 @@ export function classifyAll(db, rules = loadRules()) {
 
   for (const row of candidates) {
     const res = results.get(row.id);
+    if (res.explicit) continue; // a person decided this one in /classify
     if (!['direct', 'suppliers_other', 'unclassified'].includes(res.bucket)) continue;
     if (supplierNames.some((s) => (row.counterparty || '').includes(s))) continue;
     const ot = tokens(row.counterparty);

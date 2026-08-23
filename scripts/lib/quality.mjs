@@ -82,26 +82,39 @@ export function checkAcquirersNeverLand({ byAcquirer = {}, labels = (k) => k }) 
   return out;
 }
 
-// The day a tax actually leaves the bank vs the configured day. Off by more
-// than 3 days → "paid" detection and the deadline line can both be wrong.
+// The day a tax actually leaves the bank vs the configured day.
+// VAT: vatDueDay is the LEGAL filing date, never inferred from the bank. A
+// debit that lands well after it is a late payment worth knowing about, and
+// is reported as such; it is not a reason to move the deadline.
+// Advances: advanceDueDay is documented as the actual debit day, so a
+// consistent mismatch there is a setting to fix.
 export function checkTaxDebitDays({ vatDays = [], advanceDays = [], vatDueDay, advanceDueDay }) {
   const out = [];
-  const one = (days, configured, what, setting) => {
-    if (days.length < 2 || configured == null) return;
-    const med = median(days);
-    if (Math.abs(med - configured) > 3) {
+  if (vatDays.length >= 2 && vatDueDay != null) {
+    const med = median(vatDays);
+    if (med - vatDueDay > 3) {
       out.push({
-        key: `tax_day|${setting}`,
+        key: 'tax_day|vat_late',
         severity: 'warn', area: 'tax',
-        title: `${what}: היום בהגדרות לא תואם לבנק`,
-        text: `${what} יורד בפועל סביב ה-${r(med)} לחודש (לפי ${days.length} חיובים), אבל בהגדרות כתוב ${configured}. זה יכול להציג תשלום כ"לא שולם" או להחמיץ אותו.`,
-        action: `הגדרות ← ${setting} = ${r(med)}`,
-        suggested: { setting, value: r(med) },
+        title: 'מע"מ יורד מהבנק אחרי המועד',
+        text: `המע"מ יורד בפועל סביב ה-${r(med)} לחודש (לפי ${vatDays.length} חיובים), והמועד החוקי שבהגדרות הוא ה-${vatDueDay}. תשלום אחרי המועד צובר הפרשי הצמדה וריבית.`,
+        action: 'לבדוק עם הרו"ח אם ההסדר מול רשות המסים באמת מאוחר יותר; לא לשנות את המועד בהגדרות לפי הבנק',
       });
     }
-  };
-  one(vatDays, vatDueDay, 'מע"מ', 'vatDueDay');
-  one(advanceDays, advanceDueDay, 'מקדמת מס', 'advanceDueDay');
+  }
+  if (advanceDays.length >= 2 && advanceDueDay != null) {
+    const med = median(advanceDays);
+    if (Math.abs(med - advanceDueDay) > 3) {
+      out.push({
+        key: 'tax_day|advanceDueDay',
+        severity: 'warn', area: 'tax',
+        title: 'מקדמת מס: יום החיוב בהגדרות לא תואם לבנק',
+        text: `המקדמה יורדת בפועל סביב ה-${r(med)} לחודש (לפי ${advanceDays.length} חיובים), אבל בהגדרות כתוב ${advanceDueDay}. זה יכול להציג תשלום כ"לא שולם" או להחמיץ אותו.`,
+        action: `הגדרות ← advanceDueDay = ${r(med)}`,
+        suggested: { setting: 'advanceDueDay', value: r(med) },
+      });
+    }
+  }
   return out;
 }
 
@@ -180,24 +193,22 @@ export function checkFxRate({ hasUsd = false, usdToIls = null }) {
   }];
 }
 
-// Sync freshness for each source.
-export function checkFreshness({ today, bankLastDate, cardcomEnabled = false, cardcomLastSync = null, daysBetween }) {
+// Sync freshness per source, from the last SUCCESSFUL sync, not from the
+// last transaction: a quiet account synced this morning is fresh; a source
+// that never synced is not.
+export function checkFreshness({ today, bankLastSync = null, bankHasRows = false, cardcomEnabled = false, cardcomLastSync = null, daysBetween }) {
   const out = [];
-  if (bankLastDate && daysBetween(bankLastDate, today) > 3) {
-    out.push({
-      key: 'bank_stale', severity: 'fix', area: 'general',
-      title: 'נתוני הבנק לא עדכניים',
-      text: `התנועה האחרונה מהבנק היא מ-${bankLastDate.slice(8, 10)}.${bankLastDate.slice(5, 7)}. היתרה והתחזית מתבססות על נתונים ישנים.`,
-      action: 'npm run sync',
-    });
+  const age = (ts) => (ts ? daysBetween(ts.slice(0, 10), today) : null);
+  const dm = (ts) => `${ts.slice(8, 10)}.${ts.slice(5, 7)}`;
+  if (bankHasRows && !bankLastSync) {
+    out.push({ key: 'bank_never_synced', severity: 'fix', area: 'general', title: 'הבנק מעולם לא סונכרן', text: 'יש תנועות במסד, אבל אין רישום של סנכרון מוצלח מהבנק. היתרה והתחזית עלולות להיות ישנות.', action: 'npm run sync' });
+  } else if (bankLastSync && age(bankLastSync) > 3) {
+    out.push({ key: 'bank_stale', severity: 'fix', area: 'general', title: 'נתוני הבנק לא עדכניים', text: `הסנכרון המוצלח האחרון מהבנק היה ב-${dm(bankLastSync)}. היתרה והתחזית מתבססות על נתונים ישנים.`, action: 'npm run sync' });
   }
-  if (cardcomEnabled && cardcomLastSync && daysBetween(cardcomLastSync.slice(0, 10), today) > 2) {
-    out.push({
-      key: 'cardcom_stale', severity: 'warn', area: 'sales',
-      title: 'מכירות הקארדקום לא סונכרנו',
-      text: `הסנכרון האחרון מקארדקום היה ב-${cardcomLastSync.slice(8, 10)}.${cardcomLastSync.slice(5, 7)}. מכירות מאז לא מופיעות.`,
-      action: 'npm run sync:cardcom',
-    });
+  if (cardcomEnabled && !cardcomLastSync) {
+    out.push({ key: 'cardcom_never_synced', severity: 'warn', area: 'sales', title: 'קארדקום מעולם לא סונכרן', text: 'החיבור לקארדקום מופעל, אבל עדיין לא רץ סנכרון מוצלח.', action: 'npm run sync:cardcom' });
+  } else if (cardcomEnabled && cardcomLastSync && age(cardcomLastSync) > 2) {
+    out.push({ key: 'cardcom_stale', severity: 'warn', area: 'sales', title: 'מכירות הקארדקום לא סונכרנו', text: `הסנכרון האחרון מקארדקום היה ב-${dm(cardcomLastSync)}. מכירות מאז לא מופיעות.`, action: 'npm run sync:cardcom' });
   }
   return out;
 }
@@ -206,10 +217,11 @@ export function checkFreshness({ today, bankLastDate, cardcomEnabled = false, ca
 export function summarizeQuality(findings) {
   const fix = findings.filter((f) => f.severity === 'fix').length;
   const warn = findings.filter((f) => f.severity === 'warn').length;
-  const cashFix = findings.filter((f) => f.area === 'cashflow' && f.severity === 'fix').length;
-  const cashWarn = findings.filter((f) => f.area === 'cashflow' && f.severity === 'warn').length;
   const verdict = fix ? 'fix' : warn ? 'check' : 'good';
-  const confidence = cashFix ? 'low' : cashWarn ? 'medium' : 'high';
+  // Any "fix" anywhere (stale bank, duplicate item, FX at 1:1) makes the
+  // forecast untrustworthy; a cashflow/general warning makes it "probably ok".
+  const cashWarn = findings.filter((f) => (f.area === 'cashflow' || f.area === 'general') && f.severity === 'warn').length;
+  const confidence = fix ? 'low' : cashWarn ? 'medium' : 'high';
   const confidenceText = { high: 'התחזית מבוססת על נתונים נקיים', medium: 'התחזית סבירה; יש הגדרה אחת או שתיים לבדוק', low: 'התחזית עלולה להטעות עד שיטופלו הפריטים למטה' }[confidence];
   return { verdict, confidence, confidenceText, counts: { fix, warn, info: findings.length - fix - warn } };
 }

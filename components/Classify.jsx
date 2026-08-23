@@ -16,8 +16,8 @@ export default function Classify() {
   }, []);
   useEffect(() => { load(); const t = setInterval(load, 5 * 60 * 1000); return () => clearInterval(t); }, [load]);
   const act = async (action, p) => {
-    setBusy(p.counterparty);
-    try { await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, counterparty: p.counterparty }) }); await load(); }
+    setBusy(p.side + p.counterparty);
+    try { await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, counterparty: p.counterparty, side: p.side }) }); await load(); }
     finally { setBusy(null); }
   };
   const pending = (d?.proposals || []).filter((p) => p.status === 'pending');
@@ -34,12 +34,12 @@ export default function Classify() {
       ) : pending.length === 0 ? (
         <p className="review-empty">
           {d.empty || !d.ok ? 'הסוכן עוד לא הציע סיווגים. ' : 'אין הצעות פתוחות. '}
-          מריצים <code>npm run classify</code> (רץ על מנוי Claude שלך) או <code>/classify</code> בתוך Claude Code; ההצעות יופיעו כאן לאישור.
+          מריצים <code>npm run classify</code> (רץ על מנוי Claude שלך; בפעם הראשונה עם <code>-- --yes</code> לאישור שליחת תמצית הנתונים) או <code>/classify</code> בתוך Claude Code; ההצעות יופיעו כאן לאישור.
         </p>
       ) : (
         <ul className="cl-list">
           {pending.map((p) => (
-            <li className="cl-item" key={p.counterparty}>
+            <li className="cl-item" key={p.side + p.counterparty}>
               <div className="cl-top">
                 <span className="cl-name">{p.counterparty}</span>
                 <span className="cl-meta">{p.count === 1 ? 'תנועה אחת' : `${p.count} תנועות`} · {fmtIls(Math.abs(p.total))}</span>
@@ -50,8 +50,8 @@ export default function Classify() {
                 {p.reason ? <span className="cl-reason">{p.reason}</span> : null}
               </div>
               <div className="cl-actions">
-                <button className="mp-chip on" disabled={busy === p.counterparty} onClick={() => act('approve', p)}>אשר</button>
-                <button className="mp-chip" disabled={busy === p.counterparty} onClick={() => act('reject', p)}>לא</button>
+                <button className="mp-chip on" disabled={busy === p.side + p.counterparty} onClick={() => act('approve', p)}>אשר</button>
+                <button className="mp-chip" disabled={busy === p.side + p.counterparty} onClick={() => act('reject', p)}>לא</button>
                 <span className="cl-rule">יכתוב חוק: "{p.match}" ← {p.bucket}</span>
               </div>
             </li>

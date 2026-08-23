@@ -40,12 +40,37 @@ test('parseProposals keeps only vocabulary buckets, known counterparties and a m
     { counterparty: 'לקוח א', match: 'לקוח א', bucket: 'suppliers_other' },
     { counterparty: 'לקוח א', match: 'לקוח א', bucket: 'direct', confidence: 'weird' },
     { counterparty: 'מי זה', match: 'מי', bucket: 'rent' },
+    { counterparty: 'הוט מובייל בעמ', match: 'הוט', bucket: '__proto__' },
+    { counterparty: 'הוט מובייל בעמ', match: 'הוט', bucket: 'toString' },
   ]) + '\n```';
   const out = parseProposals(text, groups);
   assert.equal(out.length, 2);
   assert.equal(out[0].group, 'expense'); assert.equal(out[0].label, BANK_BUCKETS.out.suppliers_other.label);
   assert.equal(out[1].bucket, 'direct'); assert.equal(out[1].confidence, 'medium'); assert.equal(out[1].status, 'pending');
   assert.deepEqual(parseProposals('no json here', groups), []);
+});
+
+test('gatherUnclassified keeps in and out for the same name apart', (t) => {
+  const db = tmpDb(t, 'test-cla3.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'דני', 'unclassified', 'unclassified');
+  tx(db, 'a2', '2026-08-01', 4000, 'דני', 'unclassified', 'unclassified');
+  const u = gatherUnclassified(db);
+  assert.equal(u.groups.length, 2);
+  assert.deepEqual(u.groups.map((g) => g.side).sort(), ['in', 'out']);
+});
+
+test('explicit classify rule beats the refund heuristic on the next full run', async (t) => {
+  const { classifyAll } = await import('../lib/classify.mjs');
+  const db = tmpDb(t, 'test-cla4.db');
+  // money in from "יוסי כהן", then money out to the same name: the heuristic would call it a refund
+  tx(db, 'i1', '2026-06-01', 9000, 'יוסי כהן', 'direct', 'revenue');
+  tx(db, 'o1', '2026-07-01', -3000, 'יוסי כהן', 'unclassified', 'unclassified');
+  const rules = { inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [{ match: ['יוסי כהן'], bucket: 'suppliers_other', group: 'expense', source: 'classify' }], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } }, refundPairs: [], suppliers: [] };
+  classifyAll(db, rules);
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='o1'`).get().bucket, 'suppliers_other');
+  delete rules.outflows[0].source;
+  classifyAll(db, rules);
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='o1'`).get().bucket, 'refund_direct', 'without the explicit marker the heuristic still applies');
 });
 
 test('applyProposal writes one rule to a rules file and reclassifies the rows', (t) => {
@@ -56,17 +81,22 @@ test('applyProposal writes one rule to a rules file and reclassifies the rows', 
   const rulesPath = join(ROOT, 'data', 'test-rules.json');
   writeFileSync(rulesPath, JSON.stringify({ inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } } }));
   t.after(() => rmSync(rulesPath, { force: true }));
-  const res = applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other' }, rulesPath);
+  tx(db, 'y1', '2026-08-05', -2500, 'הוט מובייל שירותי ענן בעמ', 'unclassified', 'unclassified'); // another counterparty sharing the substring: history must not move
+  const res = applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, rulesPath);
   assert.deepEqual(res.rule, { match: ['הוט מובייל'], bucket: 'suppliers_other', group: 'expense' });
   const rules = JSON.parse(readFileSync(rulesPath, 'utf8'));
   assert.equal(rules.outflows.filter((r) => r.source === 'classify').length, 1);
-  const rows = db.prepare(`SELECT bucket, bucket_group FROM bank_transactions WHERE counterparty LIKE 'הוט%'`).all();
+  const rows = db.prepare(`SELECT bucket, bucket_group FROM bank_transactions WHERE counterparty = 'הוט מובייל בעמ'`).all();
   assert.ok(rows.every((r) => r.bucket === 'suppliers_other' && r.bucket_group === 'expense'));
   assert.equal(res.reclassified, 2);
   assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='z1'`).get().bucket, 'team');
+  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='y1'`).get().bucket_group, 'unclassified', 'substring neighbour untouched');
+  assert.equal(rules.outflows[0].source, 'classify', 'explicit rule goes first so it beats broad built-ins');
   // a second decision on the same match replaces, not duplicates
-  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent' }, rulesPath);
+  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }, rulesPath);
   const rules2 = JSON.parse(readFileSync(rulesPath, 'utf8'));
   assert.equal(rules2.outflows.filter((r) => r.match?.[0] === 'הוט מובייל').length, 1);
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'x', bucket: 'nope' }, rulesPath));
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'x', bucket: 'nope', counterparty: 'x' }, rulesPath));
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: '__proto__', counterparty: 'הוט מובייל בעמ' }, rulesPath), /קטגוריה/);
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: 'constructor', counterparty: 'הוט מובייל בעמ' }, rulesPath), /קטגוריה/);
 });

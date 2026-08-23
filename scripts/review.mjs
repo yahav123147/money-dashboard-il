@@ -1,11 +1,11 @@
 // The financial agent, headless. Builds a snapshot of what the dashboard
-// shows, hands it to Claude through the user's own Claude Code subscription
-// (`claude -p`, no API key, no tools), and saves the review for the
-// "אמינות הנתונים" panel. Run: npm run review   (or --snapshot-only)
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+// shows, hands it to Claude through the owner's Claude Code subscription
+// (`claude -p`, no tools, no API key), validates the answer and saves it
+// for the "הסוכן הפיננסי" panel. Run: npm run review   (or --snapshot-only)
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureConsent, ensureSubscription, runClaude, writeJsonAtomic, INJECTION_NOTE } from './lib/agent-run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(ROOT);
@@ -17,8 +17,6 @@ const db = q.getDb();
 const today = q.israelToday();
 const safe = (fn) => { try { return fn(); } catch (e) { return { error: String(e?.message || e) }; } };
 
-// Only what the reviewer needs; recurring/cashflow items carry counterparty
-// names from the user's own bank, which is the point of the review.
 const s = q.settings;
 const snapshot = {
   date: today,
@@ -34,23 +32,23 @@ const snapshot = {
 writeFileSync(join(OUT, 'snapshot.json'), JSON.stringify(snapshot, null, 1));
 console.log(`snapshot: data/review/snapshot.json (${today})`);
 if (process.argv.includes('--snapshot-only')) process.exit(0);
+if (!ensureConsent()) process.exit(2);
+if (!ensureSubscription()) process.exit(2);
 
 const skill = readFileSync(join(ROOT, '.claude', 'skills', 'review', 'SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n/, '');
-const prompt = `${skill}\n\n## הנתונים\n\n\`\`\`json\n${JSON.stringify(snapshot)}\n\`\`\`\n\nכתוב את הסקירה עכשיו, בפורמט ארבע הכותרות בלבד.`;
-
-// Subscription only: strip any API key so claude -p cannot bill an API account.
-const env = { ...process.env };
-delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN;
-const args = ['-p', '--tools', '', '--no-session-persistence', '--output-format', 'text'];
-if (process.env.REVIEW_MODEL) args.push('--model', process.env.REVIEW_MODEL);
-const res = spawnSync('claude', args, { input: prompt, encoding: 'utf8', env, maxBuffer: 16 * 1024 * 1024 });
-if (res.error || res.status !== 0) {
-  const msg = res.error ? String(res.error.message) : (res.stderr || res.stdout || '').trim().slice(0, 500);
-  writeFileSync(join(OUT, 'latest.json'), JSON.stringify({ date: today, ts: new Date().toISOString(), ok: false, error: msg || `claude exited ${res.status}` }));
-  console.error('review failed:', msg || res.status);
+const prompt = `${skill}\n\n${INJECTION_NOTE}\n\n## הנתונים\n\n\`\`\`json\n${JSON.stringify(snapshot)}\n\`\`\`\n\nכתוב את הסקירה עכשיו, בפורמט ארבע הכותרות בלבד.`;
+const res = runClaude(prompt);
+const HEADINGS = ['### השורה התחתונה', '### מה נראה לא נכון', '### מה לתקן', '### שאלות לבעל העסק'];
+const lastSync = db.prepare(`SELECT MAX(ts) ts FROM sync_log WHERE ok=1`).get().ts;
+if (res.ok) {
+  const missing = HEADINGS.filter((h) => !res.text.includes(h));
+  if (missing.length) res.error = `הסקירה חזרה בלי הכותרות: ${missing.join(', ')}`, res.ok = false;
+}
+if (!res.ok) {
+  writeJsonAtomic(join(OUT, 'latest.json'), { date: today, ts: new Date().toISOString(), ok: false, error: res.error, syncTs: lastSync });
+  console.error('review failed:', res.error);
   process.exit(1);
 }
-const text = res.stdout.trim().replace(/\s*—\s*/g, ', ').replace(/\s*–\s*/g, ', ');
-writeFileSync(join(OUT, 'latest.md'), text);
-writeFileSync(join(OUT, 'latest.json'), JSON.stringify({ date: today, ts: new Date().toISOString(), ok: true, text }));
-console.log(`review saved: data/review/latest.md (${text.length} chars)`);
+writeFileSync(join(OUT, 'latest.md'), res.text);
+writeJsonAtomic(join(OUT, 'latest.json'), { date: today, ts: new Date().toISOString(), ok: true, text: res.text, syncTs: lastSync });
+console.log(`review saved: data/review/latest.md (${res.text.length} chars)`);

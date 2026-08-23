@@ -46,9 +46,11 @@ export function gatherUnclassified(db, { limit = 40 } = {}) {
   `).all();
   const groups = new Map();
   for (const r of rows) {
-    const key = (r.counterparty || r.raw_desc || '').trim();
-    if (!key) continue;
-    const g = groups.get(key) || { counterparty: key, side: r.amount >= 0 ? 'in' : 'out', count: 0, total: 0, first: r.date, last: r.date, samples: [] };
+    const name = (r.counterparty || r.raw_desc || '').trim();
+    if (!name) continue;
+    const side = r.amount >= 0 ? 'in' : 'out';
+    const key = side + '|' + name; // the same name can be a client and a supplier
+    const g = groups.get(key) || { counterparty: name, side, count: 0, total: 0, first: r.date, last: r.date, samples: [] };
     g.count += 1; g.total += r.amount;
     if (r.date < g.first) g.first = r.date;
     if (r.date > g.last) g.last = r.date;
@@ -76,13 +78,16 @@ export function parseProposals(text, groups) {
   let arr;
   try { arr = JSON.parse(m[1]); } catch { return []; }
   if (!Array.isArray(arr)) return [];
-  const byName = new Map(groups.map((g) => [g.counterparty, g]));
+  const byKey = new Map(groups.map((g) => [g.side + '|' + g.counterparty, g]));
   const out = [];
   for (const p of arr) {
-    const g = byName.get(String(p.counterparty || '').trim());
+    if (!p || typeof p !== 'object') continue;
+    const side = p.side === 'in' || p.side === 'out' ? p.side : null;
+    const name = String(p.counterparty || '').trim();
+    const g = byKey.get((side || 'out') + '|' + name) || byKey.get('in|' + name);
     if (!g) continue;
     const vocab = BANK_BUCKETS[g.side];
-    if (!vocab[p.bucket]) continue;
+    if (typeof p.bucket !== 'string' || !Object.hasOwn(vocab, p.bucket)) continue;
     const match = String(p.match || g.counterparty).trim();
     if (!match || !g.counterparty.includes(match)) continue;
     out.push({
@@ -96,26 +101,34 @@ export function parseProposals(text, groups) {
   return out;
 }
 
-// Write one approved proposal as a rule and re-run the classifier.
-export function applyProposal(db, { side, match, bucket }, path = RULES_PATH) {
+// Write one approved proposal as a rule, then reclassify the history of that
+// one counterparty. The rule (a substring) is for future syncs; the history
+// update is exact on name + direction so approving "בעמ" for one supplier
+// cannot touch another.
+export function applyProposal(db, { side, match, bucket, counterparty }, path = RULES_PATH) {
+  if (side !== 'in' && side !== 'out') throw new Error('כיוון לא תקין');
   const vocab = BANK_BUCKETS[side];
-  if (!vocab || !vocab[bucket]) throw new Error('קטגוריה לא מוכרת');
+  if (typeof bucket !== 'string' || !Object.hasOwn(vocab, bucket)) throw new Error('קטגוריה לא מוכרת');
+  const { group } = vocab[bucket];
+  const name = String(counterparty || '').trim();
+  if (!name) throw new Error('חסר שם מוטב');
   const m = String(match || '').trim();
   if (m.length < 2) throw new Error('טקסט התאמה קצר מדי');
   const rules = JSON.parse(readFileSync(path, 'utf8'));
   const key = side === 'in' ? 'inflows' : 'outflows';
   rules[key] = Array.isArray(rules[key]) ? rules[key] : [];
   // One rule per match text; a newer decision replaces an older one.
-  rules[key] = rules[key].filter((r) => !(Array.isArray(r.match) && r.match.length === 1 && r.match[0] === m));
-  rules[key].push({ match: [m], bucket, group: vocab[bucket].group, source: 'classify' });
+  rules[key] = rules[key].filter((r) => !(r.source === 'classify' && Array.isArray(r.match) && r.match.length === 1 && r.match[0] === m));
+  // First match wins in the engine, so an explicit decision goes to the front,
+  // ahead of the broad built-in rules. `source: 'classify'` also tells the
+  // refund heuristic to leave these rows alone.
+  rules[key].unshift({ match: [m], bucket, group, source: 'classify' });
   writeFileSync(path, JSON.stringify(rules, null, 2) + '\n');
-  // Only the rows this rule is about, and only the ones still unclassified.
-  // A full re-run would also rewrite rows classified some other way.
   const n = db.prepare(`
     UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now')
     WHERE account_type='CHECKING' AND currency='ILS' AND bucket_group='unclassified'
       AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
-      AND instr(COALESCE(counterparty,'') || ' ' || COALESCE(raw_desc,''), ?) > 0
-  `).run(bucket, vocab[bucket].group, side, side, m).changes;
-  return { rule: { match: [m], bucket, group: vocab[bucket].group }, reclassified: n };
+      AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
+  `).run(bucket, group, side, side, name).changes;
+  return { rule: { match: [m], bucket, group }, reclassified: n };
 }

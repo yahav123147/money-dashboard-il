@@ -25,5 +25,7 @@
   "cashDipWarnIls": 10000,
   "_cashDipWarnIls": "יתרת עו\"ש חזויה שמתחתיה התחזית מציגה אזהרה ודגל.",
   "advanceDueDay": 15,
-  "_advanceDueDay": "היום בחודש שבו מקדמת מס ההכנסה יורדת בפועל. 15 לפי החוק; בהוראת קבע זה לרוב כמה ימים אחרי. בדוק בבנק."
+  "_advanceDueDay": "היום בחודש שבו מקדמת מס ההכנסה יורדת בפועל. 15 לפי החוק; בהוראת קבע זה לרוב כמה ימים אחרי. בדוק בבנק.",
+  "agentsSendDataToClaude": false,
+  "_agentsSendDataToClaude": "true = אישרת שהסוכנים (/review, /classify) שולחים תמצית של הנתונים (שמות מוטבים, סכומים, תאריכים, תיאורים) ל-Claude דרך מנוי Claude Code שלך. false = הסוכנים מסרבים לרוץ. npm run review -- --yes מאשר פעם אחת."
 }

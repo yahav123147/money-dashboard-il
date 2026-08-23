@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, upsertTx } from '../lib/db.mjs';
@@ -62,10 +62,22 @@ test('checkAcquirersNeverLand: expected but never received over 2+ periods → i
   assert.match(out[0].key, /paypal/);
 });
 
-test('checkTaxDebitDays: bank says ~27, settings say 15 → warn with suggested value', () => {
+test('checkTaxDebitDays: VAT landing late is a warning, never a suggestion to move the legal date; advances day is a setting', () => {
   const out = Q.checkTaxDebitDays({ vatDays: [27, 26, 28, 27], advanceDays: [15, 16], vatDueDay: 15, advanceDueDay: 15 });
   assert.equal(out.length, 1);
-  assert.deepEqual(out[0].suggested, { setting: 'vatDueDay', value: 27 });
+  assert.equal(out[0].key, 'tax_day|vat_late'); assert.equal(out[0].suggested, undefined);
+  const adv = Q.checkTaxDebitDays({ vatDays: [], advanceDays: [27, 28, 27], vatDueDay: 15, advanceDueDay: 15 });
+  assert.deepEqual(adv[0].suggested, { setting: 'advanceDueDay', value: 27 });
+  // VAT debited a little before the legal date is fine
+  assert.equal(Q.checkTaxDebitDays({ vatDays: [12, 13, 14], advanceDays: [], vatDueDay: 15, advanceDueDay: 15 }).length, 0);
+});
+
+test('checkFreshness: from the last successful sync, not the last transaction', () => {
+  const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
+  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: '2026-08-10 04:00:00', bankHasRows: true, daysBetween }).length, 0, 'quiet account synced today is fresh');
+  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: null, bankHasRows: true, daysBetween })[0].key, 'bank_never_synced');
+  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: '2026-08-01 04:00:00', bankHasRows: true, daysBetween })[0].key, 'bank_stale');
+  assert.equal(Q.checkFreshness({ today: '2026-08-10', cardcomEnabled: true, cardcomLastSync: null, daysBetween })[0].key, 'cardcom_never_synced');
 });
 
 test('checkVatEstimate: paid ≈ computed → nothing; paid 3x computed → warn', () => {
@@ -84,6 +96,7 @@ test('summarizeQuality: a cashflow fix → confidence low, verdict fix', () => {
   const s = Q.summarizeQuality([{ severity: 'fix', area: 'cashflow' }, { severity: 'info', area: 'sales' }]);
   assert.equal(s.verdict, 'fix'); assert.equal(s.confidence, 'low'); assert.equal(s.counts.info, 1);
   assert.equal(Q.summarizeQuality([]).confidence, 'high');
+  assert.equal(Q.summarizeQuality([{ severity: 'fix', area: 'general' }]).confidence, 'low', 'a stale bank is never a high-confidence forecast');
 });
 
 test('computeQuality on a db: duplicate pending rows, stale bank, unclassified share, manual duplicate', async (t) => {
@@ -97,20 +110,16 @@ test('computeQuality on a db: duplicate pending rows, stale bank, unclassified s
   // duplicate pending rows
   tx(db, 'p1', '2026-08-20', -2000, 'ספק', 'software', 'expense', 'PENDING');
   tx(db, 'p2', '2026-08-20', -2000, 'ספק', 'software', 'expense', 'PENDING');
-  // manual recurring that duplicates the learned rent (no bucket)
-  const recPath = join(ROOT, 'config', 'recurring.json');
-  const orig = readFileSync(recPath, 'utf8');
-  const cfg = JSON.parse(orig);
-  writeFileSync(recPath, JSON.stringify({ ...cfg, items: [{ name: 'שכירות משרד', day: 26, amount: -15000 }] }));
-  t.after(() => writeFileSync(recPath, orig));
-  await new Promise((res) => setTimeout(res, 20));
+  // manual recurring that duplicates the learned rent (no bucket), passed in
+  // memory: the test never touches config/recurring.json
+  const recurringFixture = { items: [{ name: 'שכירות משרד', day: 26, amount: -15000 }], ignore: [] };
 
-  const q = computeQuality(db, today);
+  const q = computeQuality(db, today, { recurring: recurringFixture });
   const keys = q.findings.map((f) => f.key);
   assert.ok(keys.some((k) => k.startsWith('rec_dup|')), 'manual/learned duplicate');
   assert.ok(keys.includes('pending_dupes'), 'pending duplicates');
   assert.ok(keys.includes('unclassified_share'), 'unclassified share');
-  assert.ok(keys.includes('bank_stale'), 'bank last row 07-03 vs today 08-10');
+  assert.ok(keys.includes('bank_never_synced'), 'rows exist but no successful sync logged');
   assert.equal(q.confidence, 'low');
   assert.equal(q.findings[0].severity, 'fix', 'sorted fix first');
 });

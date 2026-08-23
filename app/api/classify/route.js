@@ -24,13 +24,13 @@ export async function POST(req) {
   let body; try { body = await req.json(); } catch { body = {}; }
   const saved = load();
   if (!saved || !Array.isArray(saved.proposals)) return Response.json({ error: 'אין הצעות; הרץ npm run classify' }, { status: 400 });
-  const p = saved.proposals.find((x) => x.counterparty === body.counterparty);
+  const p = saved.proposals.find((x) => x.counterparty === body.counterparty && (!body.side || x.side === body.side));
   if (!p) return Response.json({ error: 'הצעה לא נמצאה' }, { status: 404 });
   try {
     if (body.action === 'approve') {
       const bucket = body.bucket || p.bucket;
       const match = body.match || p.match;
-      const res = applyProposal(getDb(), { side: p.side, match, bucket });
+      const res = applyProposal(getDb(), { side: p.side, match, bucket, counterparty: p.counterparty });
       Object.assign(p, { status: 'approved', bucket, match, appliedAt: new Date().toISOString(), reclassified: res.reclassified });
     } else if (body.action === 'reject') {
       p.status = 'rejected';

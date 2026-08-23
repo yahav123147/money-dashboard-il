@@ -3,11 +3,11 @@
 // key) for a category per counterparty, and saves the proposals for the
 // approval panel. Nothing is written to config until a person approves.
 // Run: npm run classify   (or --snapshot-only)
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gatherUnclassified, ruleExamples, parseProposals, BANK_BUCKETS } from './lib/classify-agent.mjs';
+import { ensureConsent, ensureSubscription, runClaude, writeJsonAtomic, INJECTION_NOTE } from './lib/agent-run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(ROOT);
@@ -24,28 +24,31 @@ writeFileSync(join(OUT, 'snapshot.json'), JSON.stringify(snapshot, null, 1));
 console.log(`snapshot: ${u.totalGroups} מוטבים לא מסווגים (${u.totalRows} תנועות)`);
 if (process.argv.includes('--snapshot-only')) process.exit(0);
 if (!u.groups.length) {
-  writeFileSync(join(OUT, 'proposals.json'), JSON.stringify({ date: today, ts: new Date().toISOString(), ok: true, proposals: [], note: 'אין תנועות לא מסווגות' }));
+  writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: true, proposals: [], note: 'אין תנועות לא מסווגות' });
   console.log('אין מה לסווג'); process.exit(0);
 }
 
+if (!ensureConsent()) process.exit(2);
+if (!ensureSubscription()) process.exit(2);
 const skill = readFileSync(join(ROOT, '.claude', 'skills', 'classify', 'SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n/, '');
-const prompt = `${skill}\n\n## הנתונים\n\n\`\`\`json\n${JSON.stringify(snapshot)}\n\`\`\`\n\nהחזר עכשיו רק את בלוק ה-JSON.`;
-const env = { ...process.env };
-delete env.ANTHROPIC_API_KEY; delete env.ANTHROPIC_AUTH_TOKEN;
-const args = ['-p', '--tools', '', '--no-session-persistence', '--output-format', 'text'];
-if (process.env.REVIEW_MODEL) args.push('--model', process.env.REVIEW_MODEL);
-const res = spawnSync('claude', args, { input: prompt, encoding: 'utf8', env, maxBuffer: 16 * 1024 * 1024 });
-if (res.error || res.status !== 0) {
-  const msg = res.error ? String(res.error.message) : (res.stderr || res.stdout || '').trim().slice(0, 500);
-  writeFileSync(join(OUT, 'proposals.json'), JSON.stringify({ date: today, ts: new Date().toISOString(), ok: false, error: msg || `claude exited ${res.status}` }));
-  console.error('classify failed:', msg || res.status);
+const prompt = `${skill}\n\n${INJECTION_NOTE}\n\n## הנתונים\n\n\`\`\`json\n${JSON.stringify(snapshot)}\n\`\`\`\n\nהחזר עכשיו רק את בלוק ה-JSON.`;
+const res = runClaude(prompt);
+if (!res.ok) {
+  writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: false, error: res.error });
+  console.error('classify failed:', res.error);
   process.exit(1);
 }
-const fresh = parseProposals(res.stdout, u.groups);
+const fresh = parseProposals(res.text, u.groups);
+if (!fresh.length) {
+  writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: false, error: 'Claude לא החזיר הצעות תקינות (בלוק JSON עם קטגוריות מהמילון)' });
+  console.error('classify: no valid proposals in the answer');
+  process.exit(1);
+}
 // Keep earlier decisions (approved / rejected) for counterparties still present.
 let prev = [];
 try { prev = JSON.parse(readFileSync(join(OUT, 'proposals.json'), 'utf8')).proposals || []; } catch { /* first run */ }
-const decided = new Map(prev.filter((p) => p.status !== 'pending').map((p) => [p.counterparty, p]));
-const proposals = fresh.map((p) => decided.get(p.counterparty) || p);
-writeFileSync(join(OUT, 'proposals.json'), JSON.stringify({ date: today, ts: new Date().toISOString(), ok: true, proposals, totalGroups: u.totalGroups, totalRows: u.totalRows, totalAmount: u.totalAmount }, null, 1));
+const k = (p) => p.side + '|' + p.counterparty;
+const decided = new Map(prev.filter((p) => p.status !== 'pending').map((p) => [k(p), p]));
+const proposals = fresh.map((p) => decided.get(k(p)) || p);
+writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: true, proposals, totalGroups: u.totalGroups, totalRows: u.totalRows, totalAmount: u.totalAmount });
 console.log(`proposals saved: ${proposals.length} (data/classify/proposals.json)`);

@@ -34,17 +34,17 @@ export default function Review() {
     <section className="panel" id="review">
       <div className="panel-head">
         <h2>הסוכן הפיננסי</h2>
-        <div className="side">{r?.ok ? <span className="badge ok">סקירה מ-{when}</span> : r && !r.empty ? <span className="badge stale">הסקירה האחרונה נכשלה</span> : null}</div>
+        <div className="side">{r?.ok ? <span className={`badge ${r.stale ? 'warn' : 'ok'}`}>{r.stale ? `סקירה מ-${when}, לפני הסנכרון האחרון` : `סקירה מ-${when}`}</span> : r && !r.empty ? <span className="badge stale">הסקירה האחרונה נכשלה</span> : null}</div>
       </div>
       {!r ? <p className="brief-loading">טוען…</p> : r.ok ? (
         <div className="review">{render(r.text)}</div>
       ) : r.empty ? (
         <p className="review-empty">
           עדיין לא רצה סקירה. הסוכן עובר על המספרים שבמסך, מצליב אותם עם בדיקות האיכות, ואומר בעברית פשוטה מה נכון ומה לתקן.
-          מריצים <code>npm run review</code> (כמה דקות, רץ על מנוי Claude שלך), או <code>/review</code> בתוך Claude Code כשרוצים לדבר איתו.
+          מריצים <code>npm run review</code> (כמה דקות, רץ על מנוי Claude שלך; בפעם הראשונה <code>npm run review -- --yes</code> לאישור שליחת תמצית הנתונים), או <code>/review</code> בתוך Claude Code כשרוצים לדבר איתו.
         </p>
       ) : (
-        <p className="review-empty">הריצה האחרונה נכשלה: {r.error}. לוודא ש-<code>claude</code> מותקן ומחובר (<code>claude login</code>), ולהריץ שוב <code>npm run review</code>.</p>
+        <p className="review-empty">הריצה האחרונה נכשלה: {r.error}. לוודא ש-<code>claude</code> מותקן ומחובר למנוי (<code>claude auth login --claudeai</code>), ולהריץ שוב <code>npm run review</code>.</p>
       )}
     </section>
   );
