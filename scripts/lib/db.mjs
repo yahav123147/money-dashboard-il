@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -8,6 +8,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DB_PATH = process.env.MONEY_DB_PATH || join(ROOT, 'data', 'money.db');
 
 const WAL_WAIT = new Int32Array(new SharedArrayBuffer(4));
+function hardenDbFiles(path) {
+  if (process.platform === 'win32' || typeof path !== 'string' || path === ':memory:' || path.startsWith('file:')) return;
+  // Create the database with private permissions before SQLite opens it. This
+  // avoids the process umask briefly exposing a new financial database as 0644.
+  if (!existsSync(path)) closeSync(openSync(path, 'a', 0o600));
+  for (const file of [path, `${path}-wal`, `${path}-shm`, `${path}-journal`]) {
+    if (existsSync(file)) chmodSync(file, 0o600);
+  }
+}
+
 function ensureWal(db) {
   let lastError;
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -65,6 +75,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 
 export function openDb(path = DB_PATH) {
   mkdirSync(dirname(path), { recursive: true });
+  hardenDbFiles(path);
   const db = new Database(path);
   db.pragma('busy_timeout = 5000'); // two writers (API + a script) wait instead of failing
   ensureWal(db);
@@ -108,6 +119,7 @@ export function openDb(path = DB_PATH) {
       if (!ccCols.has(col)) db.exec(`ALTER TABLE cardcom_sales ADD COLUMN ${col} ${type}`);
     }
   }).immediate();
+  hardenDbFiles(path);
   return db;
 }
 

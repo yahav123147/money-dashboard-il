@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,20 @@ const tx = (db, id, date, amount, counterparty, bucket, group) => upsertTx(db, {
   id, account_id: 'c', account_number: '1', account_type: 'CHECKING', provider: 't', date, month: date.slice(0, 7),
   amount, currency: 'ILS', counterparty, raw_desc: counterparty, status: 'completed', side: amount > 0 ? 'in' : 'out',
   bucket, bucket_group: group, raw_json: '{}',
+});
+
+test('openDb repairs database and WAL sidecar permissions to owner-only', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX permission bits are not available on Windows');
+  const dir = mkdtempSync(join(tmpdir(), 'money-db-mode-test-'));
+  const p = join(dir, 'money.db');
+  writeFileSync(p, '');
+  chmodSync(p, 0o644);
+  const db = openDb(p);
+  t.after(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+  db.exec('CREATE TABLE permission_probe (id INTEGER)');
+  for (const file of [p, `${p}-wal`, `${p}-shm`]) {
+    assert.equal(statSync(file).mode & 0o777, 0o600, `${file} must be private`);
+  }
 });
 
 test('gatherUnclassified groups by counterparty, biggest first, with samples', (t) => {
