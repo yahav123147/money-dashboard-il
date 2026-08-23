@@ -32,16 +32,20 @@ export default function Shell({ tab, title, dash, children }) {
         </div>
         <div className="meta">
           <nav className="tabs" aria-label="מסכים">
-            <Link href="/" className={`tab${tab === 'status' ? ' on' : ''}`}>מצב</Link>
+            <Link href="/" className={`tab${tab === 'status' ? ' on' : ''}`}>דוח מצב</Link>
             <Link href="/details" className={`tab${tab === 'details' ? ' on' : ''}`}>פירוט</Link>
           </nav>
-          <span className="badge">{today}</span>
-          {lastFetch
-            ? <span className="badge ok">עודכן {lastFetch.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}</span>
-            : <span className="badge">טוען...</span>}
-          <button type="button" className="linkish" onClick={() => setShowSetup(true)}>הגדרות</button>
         </div>
       </header>
+      <div className="metaline">
+        <span>{today}</span>
+        <span className="sep" />
+        {lastFetch
+          ? <span className="upd"><i />עודכן {lastFetch.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}</span>
+          : <span>טוען…</span>}
+        <span className="sep" />
+        <button type="button" className="linkish" onClick={() => setShowSetup(true)}>הגדרות</button>
+      </div>
       {children}
       <footer>מקומי בלבד · הנתונים לא יוצאים מהמחשב שלך</footer>
     </main>

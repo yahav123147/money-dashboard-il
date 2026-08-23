@@ -1,38 +1,55 @@
-import { fmtIls, hebDay, EmptyState } from './format';
+import { fmtIls, hebDay } from './format';
 
-// The morning briefing: four lines, fixed order, then three numbers.
-// Tone: plain ink by default. 'attention' = gold dot. 'action' = the one
-// burgundy dot on the page, reserved for missing money and passed deadlines.
-export default function Briefing({ b }) {
-  if (!b) return <section className="panel brief"><EmptyState text="מכין את התדריך…" /></section>;
-  const lines = Array.isArray(b.lines) ? b.lines : [];
-  const n = b.numbers || {};
+// Status hero: three stat tiles (the balance leads), then the four fixed
+// briefing lines as a list. Tone: plain ink by default; gold dot = worth
+// knowing; burgundy dot = money missing or a deadline passed. Nothing else
+// gets color.
+export function StatTiles({ b }) {
+  const n = b?.numbers || {};
+  const dip = n.dip;
+  const np = n.nextPayment;
   return (
-    <section className={`panel brief${b.quiet ? ' quiet' : ''}`}>
-      <div className="brief-lines">
-        {lines.map((l) => (
-          <div className={`brief-line tone-${l.tone || 'plain'}`} key={l.key}>
-            <span className="brief-label"><span className="brief-dot" />{l.label}</span>
-            <span className="brief-text">{l.text}</span>
-          </div>
-        ))}
+    <div className="stats">
+      <div className="stat lead">
+        <span className="stat-k">יתרה בבנק</span>
+        <span className="stat-v num">{b ? fmtIls(n.balance || 0) : '···'}</span>
+        <span className="stat-s">עו"ש, נכון להיום</span>
       </div>
-      <div className="brief-nums">
-        <div className="brief-num">
-          <span className="k">יתרה בבנק</span>
-          <span className="v num">{fmtIls(n.balance || 0)}</span>
-        </div>
-        <div className="brief-num">
-          <span className="k">הנקודה הנמוכה הקרובה</span>
-          <span className={`v num${n.dip && n.dip.amount < 0 ? ' neg' : ''}`}>{n.dip ? fmtIls(n.dip.amount) : '···'}</span>
-          <span className="s">{n.dip ? hebDay(n.dip.date) : ''}</span>
-        </div>
-        <div className="brief-num">
-          <span className="k">התשלום הבא</span>
-          <span className="v num">{n.nextPayment ? fmtIls(n.nextPayment.amount) : '···'}</span>
-          <span className="s">{n.nextPayment ? `${n.nextPayment.what} · ${hebDay(n.nextPayment.date)}` : 'אין תשלום מס פתוח'}</span>
-        </div>
+      <div className="stat">
+        <span className="stat-k">הנקודה הנמוכה הקרובה</span>
+        <span className={`stat-v num${dip && dip.amount < 0 ? ' neg' : ''}${dip ? '' : ' none'}`}>{dip ? fmtIls(dip.amount) : 'אין'}</span>
+        <span className="stat-s">{dip ? `ב${hebDay(dip.date)}, לפי הקבועות` : 'אין תחזית עדיין'}</span>
       </div>
+      <div className="stat">
+        <span className="stat-k">התשלום הבא למס</span>
+        <span className={`stat-v num${np ? '' : ' none'}`}>{np ? fmtIls(np.amount) : 'אין'}</span>
+        <span className="stat-s">{np ? `${np.what} · עד ${hebDay(np.date)}` : 'שום תשלום מס לא ממתין'}</span>
+      </div>
+    </div>
+  );
+}
+
+export default function Briefing({ b }) {
+  const lines = Array.isArray(b?.lines) ? b.lines : [];
+  const todayCount = b?.todo?.today?.length || 0;
+  const weekCount = b?.todo?.week?.length || 0;
+  const mood = !b ? '' : todayCount ? `${todayCount === 1 ? 'דבר אחד' : `${todayCount} דברים`} לבדוק היום` : weekCount ? `${weekCount === 1 ? 'דבר אחד' : `${weekCount} דברים`} לשבוע` : 'יום שקט';
+  return (
+    <section className="panel brief">
+      <div className="panel-head">
+        <h2>תדריך בוקר</h2>
+        <div className="side">{mood ? <span className={`badge${todayCount ? ' stale' : weekCount ? ' warn' : ' ok'}`}>{mood}</span> : null}</div>
+      </div>
+      {!b ? <p className="brief-loading">מכין את התדריך…</p> : (
+        <ol className="brief-list">
+          {lines.map((l) => (
+            <li className={`brief-row tone-${l.tone || 'plain'}`} key={l.key}>
+              <span className="brief-tag"><span className="brief-dot" />{l.label}</span>
+              <span className="brief-text">{l.text}</span>
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   );
 }
