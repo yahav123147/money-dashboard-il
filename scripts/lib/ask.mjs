@@ -39,7 +39,7 @@ export function dataPack(db, today, months = 13) {
   const top = (sign) => db.prepare(`
     SELECT month, counterparty, SUM(amount) s, COUNT(*) n FROM bank_transactions
     WHERE account_type='CHECKING' AND currency='ILS' AND month >= ? AND month <= ? AND amount ${sign} 0 AND counterparty != ''
-      AND bucket_group NOT IN ('internal') AND bucket NOT IN ('card_settlement','fx_conversion')
+      AND bucket_group IN ('revenue','refund','expense','unclassified')
     GROUP BY month, counterparty ORDER BY month, ABS(SUM(amount)) DESC
   `).all(from, ym);
   const topIn = {}; const topOut = {};
