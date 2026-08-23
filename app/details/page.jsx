@@ -18,6 +18,7 @@ import MonthPicker from '@/components/MonthPicker';
 import TaxView from '@/components/TaxView';
 import Quality from '@/components/Quality';
 import Review from '@/components/Review';
+import Classify from '@/components/Classify';
 
 // Details screen: "why, and what happened this month?" Three sections.
 // The month picker drives the first section only.
@@ -74,6 +75,7 @@ export default function DetailsPage() {
           <div><Quality /></div>
           <div><Review /></div>
         </div>
+        <Classify />
       </Section>
     </Shell>
   );

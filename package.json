@@ -11,7 +11,8 @@
     "sync:cardcom": "node scripts/cardcom-sync.mjs",
     "demo": "node scripts/demo-seed.mjs",
     "review": "node scripts/review.mjs",
-    "review:snapshot": "node scripts/review.mjs --snapshot-only"
+    "review:snapshot": "node scripts/review.mjs --snapshot-only",
+    "classify": "node scripts/classify-agent.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",
