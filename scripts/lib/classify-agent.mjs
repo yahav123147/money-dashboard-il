@@ -4,6 +4,7 @@
 // groups below and returns JSON; every write goes through applyProposal,
 // after a person approved it in the dashboard or in /classify.
 import { loadRules, explicitRules, withExplicit, classifyAllLocked } from './classify.mjs';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 
 
 // The vocabulary the agent may use for bank rows. Anything else is rejected.
@@ -104,15 +105,16 @@ export function parseProposals(text, groups) {
 // for. Shown before approval, so "הוט" → rent is a conscious choice.
 export function alsoMatches(db, side, match, counterparty, limit = 6) {
   const m = String(match || '').trim();
-  if (m.length < 2) return [];
-  return db.prepare(`
+  if (m.length < 2) return { total: 0, rows: 0, names: [] };
+  const all = db.prepare(`
     SELECT TRIM(COALESCE(counterparty, raw_desc, '')) name, COUNT(*) n FROM bank_transactions
     WHERE account_type='CHECKING' AND currency='ILS'
       AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
       AND instr(COALESCE(counterparty,'') || ' ' || COALESCE(raw_desc,''), ?) > 0
       AND TRIM(COALESCE(counterparty, raw_desc, '')) != ?
-    GROUP BY name ORDER BY n DESC LIMIT ?
-  `).all(side, side, m, String(counterparty || '').trim(), limit);
+    GROUP BY name ORDER BY n DESC
+  `).all(side, side, m, String(counterparty || '').trim());
+  return { total: all.length, rows: all.reduce((a, x) => a + x.n, 0), names: all.slice(0, limit) };
 }
 
 // Count rows whose classification (bucket, group or sub-bucket) differs between two snapshots.
@@ -147,7 +149,13 @@ export function applyProposal(db, { side, match, bucket, counterparty }, fileRul
       ON CONFLICT(side, match) DO UPDATE SET bucket=excluded.bucket, bucket_group=excluded.bucket_group, counterparty=excluded.counterparty, created_at=excluded.created_at, priority=excluded.priority
     `).run(side, m, bucket, group, name, priority);
     const changed = reclassifyCounting(db, fileRules);
-    db.prepare(`UPDATE classify_proposals SET status='approved', decided_at=datetime('now'), reclassified=?, bucket=?, bucket_group=?, match=? WHERE side=? AND counterparty=?`).run(changed, bucket, group, m, side, name);
+    // The proposal moves pending/undone → approved atomically; a concurrent
+    // reject or a second approve sees "already decided" instead of racing.
+    const moved = db.prepare(`UPDATE classify_proposals SET status='approved', decided_at=datetime('now'), reclassified=?, bucket=?, bucket_group=?, match=? WHERE side=? AND counterparty=? AND status IN ('pending','undone')`).run(changed, bucket, group, m, side, name).changes;
+    if (!moved && db.prepare(`SELECT 1 FROM classify_proposals WHERE side=? AND counterparty=?`).get(side, name)) throw new Error('ההצעה כבר הוחלטה');
+    // One rule per (side, match): every other approved proposal that rides
+    // the same rule now reflects the category that is actually in force.
+    db.prepare(`UPDATE classify_proposals SET bucket=?, bucket_group=? WHERE side=? AND match=? AND status='approved' AND counterparty != ?`).run(bucket, group, side, m, name);
     return { rule: { match: [m], bucket, group }, reclassified: changed };
   }).immediate();
 }
@@ -169,14 +177,17 @@ export function removeRule(db, { side, match }, fileRules = loadRules()) {
     if (!r) throw new Error('החוק לא נמצא');
     db.prepare('DELETE FROM classify_rules WHERE side=? AND match=?').run(side, m);
     const changed = reclassifyCounting(db, fileRules);
-    const reopened = db.prepare(`UPDATE classify_proposals SET status='pending', decided_at=NULL, reclassified=NULL WHERE side=? AND counterparty=? AND status='approved'`).run(side, r.counterparty || '').changes;
+    // The proposal stays visible as "undone" (not deleted by the next agent
+    // run, even if a built-in default now claims the rows), so the owner can
+    // pick another category.
+    const reopened = db.prepare(`UPDATE classify_proposals SET status='undone', decided_at=datetime('now'), reclassified=NULL WHERE side=? AND match=? AND status='approved'`).run(side, m).changes;
     return { removed: { side, match: m, bucket: r.bucket, counterparty: r.counterparty }, reverted: changed, reopened };
   }).immediate();
 }
 
 // Proposals: the agent's fresh list is merged over the table, keeping
 // decisions already made (approved / rejected) for names still present.
-export function saveProposals(db, fresh) {
+export function saveProposals(db, fresh, run = null) {
   const up = db.prepare(`
     INSERT INTO classify_proposals (side, counterparty, match, bucket, bucket_group, label, reason, confidence, count, total, status, proposed_at)
     VALUES (@side, @counterparty, @match, @bucket, @group, @label, @reason, @confidence, @count, @total, 'pending', datetime('now'))
@@ -194,17 +205,34 @@ export function saveProposals(db, fresh) {
       if (!keep.has(row.side + '|' + row.counterparty)) db.prepare(`DELETE FROM classify_proposals WHERE side=? AND counterparty=?`).run(row.side, row.counterparty);
     }
     for (const p of fresh) up.run(p);
+    if (run) db.prepare(`INSERT INTO agent_runs (agent, ts, ok, error, count, note) VALUES ('classify', datetime('now'), 1, NULL, ?, ?)`).run(fresh.length, run.note || null);
     return fresh.length;
   }).immediate();
 }
+
+// One-time import of decisions made before proposals moved into SQLite.
+export function importLegacyProposals(db, file) {
+  if (!existsSync(file)) return 0;
+  let j; try { j = JSON.parse(readFileSync(file, 'utf8')); } catch { return 0; }
+  const items = Array.isArray(j?.proposals) ? j.proposals.filter((p) => p.status === 'approved' || p.status === 'rejected') : [];
+  const ins = db.prepare(`INSERT OR IGNORE INTO classify_proposals (side, counterparty, match, bucket, bucket_group, label, reason, confidence, count, total, status, proposed_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const n = db.transaction(() => { let k = 0; for (const p of items) k += ins.run(p.side, p.counterparty, p.match, p.bucket, p.group, p.label, p.reason, p.confidence, p.count, p.total, p.status, j.ts || null, p.appliedAt || j.ts || null).changes; return k; }).immediate();
+  renameSync(file, file + '.imported');
+  return n;
+}
 export function listProposals(db) {
   return db.prepare(`SELECT side, counterparty, match, bucket, bucket_group AS "group", label, reason, confidence, count, total, status, proposed_at AS proposedAt, decided_at AS decidedAt, reclassified FROM classify_proposals ORDER BY ABS(total) DESC`).all()
-    .map((p) => ({ ...p, alsoMatches: p.status === 'pending' ? alsoMatches(db, p.side, p.match, p.counterparty) : [] }));
+    .map((p) => ({ ...p, alsoMatches: (p.status === 'pending' || p.status === 'undone') ? alsoMatches(db, p.side, p.match, p.counterparty) : { total: 0, rows: 0, names: [] },
+      currentBucket: p.status === 'undone' ? (db.prepare(`SELECT bucket FROM bank_transactions WHERE TRIM(COALESCE(counterparty, raw_desc,''))=? AND ((?='in' AND amount>=0) OR (?='out' AND amount<0)) ORDER BY date DESC LIMIT 1`).get(p.counterparty, p.side, p.side)?.bucket || null) : null }));
 }
 export function setProposalStatus(db, { side, counterparty, status }) {
   if (!['pending', 'rejected'].includes(status)) throw new Error('סטטוס לא תקין');
-  const n = db.prepare(`UPDATE classify_proposals SET status=?, decided_at=CASE WHEN ?='pending' THEN NULL ELSE datetime('now') END WHERE side=? AND counterparty=?`).run(status, status, side, counterparty).changes;
-  if (!n) throw new Error('הצעה לא נמצאה');
+  // Only an open proposal can be rejected (or reopened); an approved one has a rule to undo first.
+  const n = db.prepare(`UPDATE classify_proposals SET status=?, decided_at=CASE WHEN ?='pending' THEN NULL ELSE datetime('now') END WHERE side=? AND counterparty=? AND status IN ('pending','undone','rejected')`).run(status, status, side, counterparty).changes;
+  if (!n) {
+    if (db.prepare(`SELECT 1 FROM classify_proposals WHERE side=? AND counterparty=?`).get(side, counterparty)) throw new Error('ההצעה כבר אושרה; לבטל את החוק קודם');
+    throw new Error('הצעה לא נמצאה');
+  }
   return n;
 }
 export function logAgentRun(db, agent, { ok, error = null, count = null, note = null }) {

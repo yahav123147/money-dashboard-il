@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasHeadings, findProviderOverrides, dropSnapshots, ensureSubscription, settingsFiles, preflight, ensureConsent, CONSENT_VERSION } from '../lib/agent-run.mjs';
+import { hasHeadings, findProviderOverrides, dropSnapshots, ensureSubscription, settingsFiles, preflight, preflightAsync, ensureConsent, CONSENT_VERSION } from '../lib/agent-run.mjs';
 import { writeFileSync, mkdirSync, existsSync, rmSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +46,7 @@ test('dropSnapshots removes both snapshot files', (t) => {
 
 const MAX = () => ({ status: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }) });
 const quiet = (t) => { const e = console.error; console.error = () => {}; t.after(() => { console.error = e; }); };
-const settingsWith = (t, obj) => { const dir = join(ROOT, 'data', 'test-agent-settings'); mkdirSync(dir, { recursive: true }); const p = join(dir, `s-${Math.random().toString(36).slice(2)}.json`); writeFileSync(p, JSON.stringify(obj)); t.after(() => rmSync(p, { force: true })); return p; };
+const settingsWith = (t, obj) => { const dir = join(ROOT, 'data', `test-agent-settings-${process.pid}`); mkdirSync(dir, { recursive: true }); const p = join(dir, `s-${Math.random().toString(36).slice(2)}.json`); writeFileSync(p, JSON.stringify(obj)); t.after(() => rmSync(dir, { recursive: true, force: true })); return p; };
 
 test('ensureSubscription: happy path on Max, clean env, no overrides', (t) => {
   quiet(t);
@@ -120,4 +120,18 @@ test('consent is versioned: an older consent does not cover the chat until re-ap
   const p = settingsWith(t, { agentsSendDataToClaude: true, agentsConsentVersion: 1 });
   assert.equal(ensureConsent(['--yes'], p), true);
   assert.equal(JSON.parse(readFileSync(p, 'utf8')).agentsConsentVersion, CONSENT_VERSION, '--yes records the current version');
+});
+
+test('preflightAsync returns the refusal text instead of printing it, and never throws', async (t) => {
+  quiet(t);
+  const root = join(ROOT, 'data', 'test-root3'); mkdirSync(root, { recursive: true });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const r = await preflightAsync({ settingsPath: settingsWith(t, {}), root, ttlMs: 0 });
+  assert.equal(r.ok, false); assert.match(r.error, /--yes|config\/settings.json/);
+});
+
+test('ensureSubscription: a status probe that cannot run is a refusal (fail closed)', (t) => {
+  quiet(t);
+  const base = { overrides: () => [], mdm: () => false, env: {}, settingsPath: settingsWith(t, {}) };
+  assert.equal(ensureSubscription({ ...base, status: () => ({ error: new Error('timeout'), status: null, stdout: '' }) }), false);
 });

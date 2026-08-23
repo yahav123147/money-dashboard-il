@@ -3,6 +3,8 @@
 // parsing of the model's reply. Pure over a db handle; the API route wires
 // it to claude -p through the same preflight as the other agents.
 import Database from 'better-sqlite3';
+import { statSync, renameSync } from 'node:fs';
+import { Worker } from 'node:worker_threads';
 
 const r = (x) => Math.round(x || 0);
 
@@ -67,42 +69,113 @@ export function dataPack(db, today, months = 13) {
   };
 }
 
-export const SCHEMA_DOC = `טבלאות (SQLite, קריאה בלבד):
+export const SCHEMA_DOC = `טבלאות (SQLite, קריאה בלבד; רק אלה קיימות):
 bank_transactions(id, account_type 'CHECKING'|'CARD', date 'YYYY-MM-DD', month 'YYYY-MM', amount (חיובי=נכנס, שלילי=יוצא), currency, counterparty, raw_desc, status ('PENDING' = עתידי), bucket, bucket_group 'revenue'|'expense'|'refund'|'internal'|'below_line'|'unclassified', sub_bucket)
 accounts(id, type, name, currency, balance, balance_date)
 cardcom_sales(deal_id, date, amount, product, acquirer, payments)
 sync_log(source, ts, ok)
-classify_rules(side, match, bucket, bucket_group)`;
+classify_rules(side, match, bucket, bucket_group, counterparty, created_at)
+classify_proposals(side, counterparty, match, bucket, status, confidence, reason)`;
 
-export const ALLOWED_TABLES = ['bank_transactions', 'accounts', 'cardcom_sales', 'sync_log', 'classify_rules', 'classify_proposals'];
+// The tables and columns a question may read. Enforced structurally: the
+// query runs against a shadow database that contains ONLY these, built from
+// the real one. A name outside the list is "no such table", whatever the SQL
+// looks like (comments, brackets, comma joins, CTEs included).
+export const ALLOWED = {
+  bank_transactions: ['id', 'account_type', 'date', 'month', 'amount', 'currency', 'counterparty', 'raw_desc', 'status', 'bucket', 'bucket_group', 'sub_bucket'],
+  accounts: ['id', 'type', 'name', 'currency', 'balance', 'balance_date'],
+  cardcom_sales: ['deal_id', 'date', 'amount', 'product', 'acquirer', 'payments'],
+  sync_log: ['source', 'ts', 'ok'],
+  classify_rules: ['side', 'match', 'bucket', 'bucket_group', 'counterparty', 'created_at'],
+  classify_proposals: ['side', 'counterparty', 'match', 'bucket', 'status', 'confidence', 'reason'],
+};
+export const ALLOWED_TABLES = Object.keys(ALLOWED);
 
-// One SELECT, on a fresh read-only connection, only the allow-listed tables,
-// rows streamed and cut at maxRows / maxBytes so a huge result is never
-// materialised. Anything else is refused before it reaches SQLite.
-export function runReadOnly(dbPath, sql, { maxRows = 200, maxBytes = 60000 } = {}) {
+export function shadowDbPath(srcPath) { return srcPath.replace(/\.db$/, '') + '.ask-view.db'; }
+// Rebuild the shadow when the source changed (file mtime+size), else reuse.
+export function buildShadowDb(srcPath) {
+  const out = shadowDbPath(srcPath);
+  const st = statSync(srcPath);
+  const stamp = `${st.mtimeMs}|${st.size}`;
+  try {
+    const cur = new Database(out, { readonly: true, fileMustExist: true });
+    const row = cur.prepare(`SELECT value FROM meta WHERE key='source'`).get();
+    cur.close();
+    if (row && row.value === stamp) return out;
+  } catch { /* rebuild */ }
+  const tmp = `${out}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+  const db = new Database(tmp);
+  try {
+    db.exec(`ATTACH DATABASE '${srcPath.replace(/'/g, "''")}' AS src`);
+    for (const [t, cols] of Object.entries(ALLOWED)) {
+      const have = new Set(db.prepare(`PRAGMA src.table_info(${t})`).all().map((c) => c.name));
+      const use = cols.filter((c) => have.has(c));
+      if (!use.length) continue;
+      db.exec(`CREATE TABLE ${t} AS SELECT ${use.map((c) => `"${c}"`).join(', ')} FROM src.${t}`);
+    }
+    db.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)`);
+    db.prepare(`INSERT INTO meta VALUES ('source', ?)`).run(stamp);
+    db.exec('DETACH DATABASE src');
+  } finally { db.close(); }
+  renameSync(tmp, out);
+  return out;
+}
+
+export function validateSql(sql) {
   const s = String(sql || '').trim().replace(/;\s*$/, '');
   if (!/^(select|with)\b/i.test(s)) throw new Error('מותר רק SELECT');
   if (/;/.test(s)) throw new Error('שאילתה אחת בלבד');
-  if (/\b(attach|detach|pragma|insert|update|delete|drop|alter|create|replace|vacuum|reindex|sqlite_|readfile|writefile|load_extension)\b/i.test(s)) throw new Error('שאילתה לקריאה בלבד');
-  for (const m of s.matchAll(/\b(?:from|join)\s+["`]?([A-Za-z_][A-Za-z0-9_]*)/gi)) {
-    const t = m[1].toLowerCase();
-    if (!ALLOWED_TABLES.includes(t) && !/^(select|with)$/.test(t)) throw new Error(`טבלה לא מותרת: ${m[1]}`);
-  }
-  const ro = new Database(dbPath, { readonly: true, fileMustExist: true });
+  // defence in depth; the shadow db is the real boundary
+  if (/\b(attach|detach|pragma|insert|update|delete|drop|alter|create|replace|vacuum|reindex|readfile|writefile|load_extension)\b/i.test(s) || /\b(sqlite_|pragma_)\w*/i.test(s)) throw new Error('שאילתה לקריאה בלבד');
+  return s;
+}
+
+// The query body, run inside a worker: fresh read-only connection to the
+// shadow, rows streamed, iteration stops at the first cap.
+export function queryShadow(shadowPath, sql, { maxRows = 200, maxBytes = 60000 } = {}) {
+  const ro = new Database(shadowPath, { readonly: true, fileMustExist: true });
   try {
     ro.pragma('query_only = 1');
-    const stmt = ro.prepare(s);
+    const stmt = ro.prepare(sql);
     if (!stmt.reader) throw new Error('השאילתה לא מחזירה שורות');
     const rows = []; let bytes = 0; let truncated = false; let total = 0;
     for (const row of stmt.iterate()) {
       total += 1;
-      if (rows.length >= maxRows) { truncated = true; if (total > maxRows + 1000) break; continue; }
       const len = JSON.stringify(row).length;
-      if (bytes + len > maxBytes) { truncated = true; continue; }
+      if (rows.length >= maxRows || bytes + len > maxBytes) { truncated = true; break; }
       rows.push(row); bytes += len;
     }
-    return { rows, truncated, total: truncated && total > maxRows + 1000 ? `${total}+` : total };
+    return { rows, truncated, total: truncated ? `${total - 1}+` : total };
   } finally { ro.close(); }
+}
+
+const WORKER = `
+  const { parentPort, workerData } = require('node:worker_threads');
+  import(workerData.mod).then((m) => {
+    try { parentPort.postMessage({ ok: true, result: m.queryShadow(workerData.shadow, workerData.sql, workerData.opts) }); }
+    catch (e) { parentPort.postMessage({ ok: false, error: String(e.message || e) }); }
+  }).catch((e) => parentPort.postMessage({ ok: false, error: String(e.message || e) }));
+`;
+// One SELECT in a worker thread with a hard timeout: a slow or huge query
+// can neither block the server nor outlive its budget (the worker is
+// terminated, which also closes its connection).
+export function runReadOnlyAsync(srcPath, sql, { maxRows = 200, maxBytes = 60000, timeoutMs = 10000 } = {}) {
+  const s = validateSql(sql);
+  const shadow = buildShadowDb(srcPath);
+  return new Promise((resolve, reject) => {
+    const w = new Worker(WORKER, { eval: true, workerData: { mod: import.meta.url, shadow, sql: s, opts: { maxRows, maxBytes } } });
+    let done = false;
+    const finish = (fn, v) => { if (!done) { done = true; clearTimeout(timer); w.terminate(); fn(v); } };
+    const timer = setTimeout(() => finish(reject, new Error(`השאילתה עברה ${Math.round(timeoutMs / 1000)} שניות ונעצרה`)), timeoutMs);
+    w.on('message', (m) => (m.ok ? finish(resolve, m.result) : finish(reject, new Error(m.error))));
+    w.on('error', (e) => finish(reject, e));
+    w.on('exit', (code) => { if (!done && code !== 0) finish(reject, new Error(`worker exited ${code}`)); });
+  });
+}
+// Synchronous form for scripts and tests (no worker; same shadow boundary and caps).
+export function runReadOnly(srcPath, sql, opts = {}) {
+  const s = validateSql(sql);
+  return queryShadow(buildShadowDb(srcPath), s, opts);
 }
 
 // The model may answer, or ask for one query first.

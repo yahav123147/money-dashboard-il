@@ -63,17 +63,21 @@ export function findProviderOverrides(files = settingsFiles()) {
 // Host-managed settings that no file shows: macOS MDM profiles, Windows
 // registry policies. We cannot parse them reliably, so presence = refusal.
 export function mdmManagedSettingsPresent() {
+  // Fail closed: a check that cannot run (timeout, missing tool, odd exit)
+  // is "cannot verify", and cannot-verify means present.
   if (process.platform === 'darwin') {
     const r = spawnSync('defaults', ['read', 'com.anthropic.claudecode'], { encoding: 'utf8', timeout: 10000 });
-    return r.status === 0 && (r.stdout || '').trim().length > 0;
+    if (r.error) return true;
+    if (r.status === 0) return (r.stdout || '').trim().length > 0;
+    return !/does not exist/i.test(r.stderr || ''); // status 1 + "domain does not exist" is the clean case
   }
   if (process.platform === 'win32' || isWsl()) {
     const reg = process.platform === 'win32' ? 'reg' : 'reg.exe';
     for (const key of ['HKLM\\SOFTWARE\\Policies\\ClaudeCode', 'HKCU\\SOFTWARE\\Policies\\ClaudeCode']) {
       const r = spawnSync(reg, ['query', key], { encoding: 'utf8', timeout: 10000 });
-      // WSL without Windows interop cannot read the registry at all: unverifiable = present.
-      if (r.error && process.platform !== 'win32') return true;
-      if (r.status === 0 && (r.stdout || '').trim().length > 0) return true;
+      if (r.error) return true;
+      if (r.status === 0) return (r.stdout || '').trim().length > 0;
+      if (!/unable to find|cannot find|not found/i.test((r.stderr || '') + (r.stdout || ''))) return true;
     }
   }
   return false;
@@ -87,6 +91,31 @@ export function dropSnapshots(root = ROOT) {
 
 function readAuthStatus() {
   return spawnSync('claude', ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30000 });
+}
+
+// Async twin for API routes: same gate, no event-loop blocking, errors
+// returned instead of printed. Cached for a minute per process.
+let gateCache = { at: 0, res: null };
+export async function preflightAsync({ settingsPath = SETTINGS, root = ROOT, ttlMs = 60000 } = {}) {
+  if (gateCache.res && Date.now() - gateCache.at < ttlMs) return gateCache.res;
+  const errs = [];
+  const orig = console.error; console.error = (...a) => errs.push(a.join(' '));
+  let ok = false;
+  try {
+    const statusRes = await new Promise((resolve) => {
+      const c = spawn('claude', ['auth', 'status', '--json'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = ''; let err = '';
+      const t = setTimeout(() => { try { c.kill('SIGKILL'); } catch { /* gone */ } resolve({ status: null, error: new Error('timeout'), stdout: out, stderr: err }); }, 30000);
+      c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { err += d; });
+      c.on('error', (e) => { clearTimeout(t); resolve({ status: null, error: e, stdout: out, stderr: err }); });
+      c.on('close', (code) => { clearTimeout(t); resolve({ status: code, stdout: out, stderr: err }); });
+    });
+    ok = ensureConsent([], settingsPath) && ensureSubscription({ status: () => statusRes, settingsPath });
+  } catch (e) { errs.push(String(e.message || e)); }
+  finally { console.error = orig; if (!ok) dropSnapshots(root); }
+  const res = ok ? { ok: true } : { ok: false, error: errs.join('\n') };
+  gateCache = { at: Date.now(), res };
+  return res;
 }
 
 // The one entry point the scripts call. Exit code 2 on any failure.

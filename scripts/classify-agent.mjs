@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gatherUnclassified, ruleExamples, parseProposals, saveProposals, logAgentRun, BANK_BUCKETS } from './lib/classify-agent.mjs';
+import { gatherUnclassified, ruleExamples, parseProposals, saveProposals, logAgentRun, importLegacyProposals, BANK_BUCKETS } from './lib/classify-agent.mjs';
 import { preflight, runClaude, writeJsonAtomic, INJECTION_NOTE } from './lib/agent-run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -19,6 +19,8 @@ if (!preflight()) process.exit(2);
 const q = await import('../lib/queries.js');
 const db = q.getDb();
 const today = q.israelToday();
+const legacy = importLegacyProposals(db, join(OUT, 'proposals.json'));
+if (legacy) console.log(`יובאו ${legacy} החלטות ישנות מ-proposals.json`);
 const u = gatherUnclassified(db);
 const vocabulary = Object.fromEntries(Object.entries(BANK_BUCKETS).map(([side, v]) => [side, Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x.label]))]));
 const snapshot = { date: today, entityType: q.settings.entityType ?? null, groups: u.groups, totalGroups: u.totalGroups, totalRows: u.totalRows, totalAmount: u.totalAmount, vocabulary, examples: ruleExamples(db) };
@@ -26,8 +28,7 @@ writeFileSync(join(OUT, 'snapshot.json'), JSON.stringify(snapshot, null, 1));
 console.log(`snapshot: ${u.totalGroups} מוטבים לא מסווגים (${u.totalRows} תנועות)`);
 if (process.argv.includes('--snapshot-only')) process.exit(0);
 if (!u.groups.length) {
-  saveProposals(db, []);
-  logAgentRun(db, 'classify', { ok: true, count: 0, note: 'אין תנועות לא מסווגות' });
+  saveProposals(db, [], { note: 'אין תנועות לא מסווגות' });
   console.log('אין מה לסווג'); process.exit(0);
 }
 
@@ -39,6 +40,5 @@ if (!res.ok) fail(res.error);
 const fresh = parseProposals(res.text, u.groups);
 if (fresh === null) fail('Claude לא החזיר בלוק JSON תקין');
 // An empty array is a legitimate answer ("nothing I can name"), not a failure.
-const n = saveProposals(db, fresh);
-logAgentRun(db, 'classify', { ok: true, count: n });
+const n = saveProposals(db, fresh, { note: null }); // proposals + the success record in one transaction
 console.log(`proposals saved: ${n} (classify_proposals)`);

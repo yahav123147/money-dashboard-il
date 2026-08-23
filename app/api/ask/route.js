@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDb, israelToday } from '@/lib/queries';
-import { dataPack, runReadOnly, parseReply, SCHEMA_DOC } from '../../../scripts/lib/ask.mjs';
-import { preflight, runClaudeAsync, INJECTION_NOTE } from '../../../scripts/lib/agent-run.mjs';
+import { dataPack, runReadOnlyAsync, parseReply, SCHEMA_DOC } from '../../../scripts/lib/ask.mjs';
+import { preflightAsync, runClaudeAsync, INJECTION_NOTE } from '../../../scripts/lib/agent-run.mjs';
 
 // One question at a time per server: each is a model call, and two in
 // flight would only queue behind each other at the CLI anyway.
@@ -26,10 +26,8 @@ export async function POST(req) {
 }
 
 async function answer(question, history) {
-  const errs = [];
-  const origErr = console.error; console.error = (...a) => errs.push(a.join(' '));
-  let ok; try { ok = preflight([]); } finally { console.error = origErr; }
-  if (!ok) return Response.json({ error: errs.join('\n') || 'הסוכן לא זמין' }, { status: 403 });
+  const gate = await preflightAsync();
+  if (!gate.ok) return Response.json({ error: gate.error || 'הסוכן לא זמין' }, { status: 403 });
 
   try {
     const db = getDb();
@@ -45,7 +43,7 @@ async function answer(question, history) {
     if (reply.sql) {
       sql = reply.sql;
       let result;
-      try { result = runReadOnly(DB_PATH, sql); rows = result.rows; }
+      try { result = await runReadOnlyAsync(DB_PATH, sql); rows = result.rows; }
       catch (e) { result = { error: String(e.message || e) }; }
       const second = await runClaudeAsync(`${base}\n\n## השאילתה שביקשת\n\`\`\`sql\n${sql}\n\`\`\`\n## התוצאה\n\`\`\`json\n${JSON.stringify(result).slice(0, 60000)}\n\`\`\`\n\nעכשיו ענה לשאלה. בלי בלוק SQL נוסף.`);
       if (!second.ok) return Response.json({ error: second.error }, { status: 502 });

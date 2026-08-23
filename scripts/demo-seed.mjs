@@ -304,9 +304,10 @@ function main() {
       return;
     }
     if (force) {
+      // Back up first; only when the backup is on disk does anything get deleted.
+      if (custom.length) console.log(`הקונפיג הקודם גובה ל-${backupAndResetConfig(dataDir)}`);
       db.exec('BEGIN IMMEDIATE; ' + DATA_TABLES.map((t) => `DELETE FROM ${t};`).join(' ') + ' COMMIT;');
       for (const d of agentOut) rmSync(d, { recursive: true, force: true });
-      if (custom.length) console.log(`הקונפיג הקודם גובה ל-${backupAndResetConfig(dataDir)}`);
     }
     const today = israelToday();
     const { rows } = seedDemo(db, entity, today);

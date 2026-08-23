@@ -4,7 +4,7 @@ import { rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, upsertTx } from '../lib/db.mjs';
-import { gatherUnclassified, parseProposals, applyProposal, listRules, removeRule, saveProposals, listProposals, setProposalStatus, alsoMatches, BANK_BUCKETS } from '../lib/classify-agent.mjs';
+import { gatherUnclassified, parseProposals, applyProposal, listRules, removeRule, saveProposals, listProposals, setProposalStatus, alsoMatches, importLegacyProposals, BANK_BUCKETS } from '../lib/classify-agent.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 function tmpDb(t, name) {
@@ -223,9 +223,12 @@ test('alsoMatches previews the other counterparties a substring rule would claim
   tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
   tx(db, 'b1', '2026-07-02', -4000, 'הוט שירותי ענן', 'unclassified', 'unclassified');
   tx(db, 'c1', '2026-07-02', 4000, 'הוט לקוח', 'direct', 'revenue'); // other direction: not listed
+  for (let i = 0; i < 8; i++) tx(db, `m${i}`, '2026-07-03', -100, `הוט סניף ${i}`, 'unclassified', 'unclassified');
   const a = alsoMatches(db, 'out', 'הוט', 'הוט מובייל בעמ');
-  assert.deepEqual(a.map((x) => x.name), ['הוט שירותי ענן']);
-  assert.deepEqual(alsoMatches(db, 'out', 'הוט מובייל', 'הוט מובייל בעמ'), []);
+  assert.equal(a.total, 9, 'every affected counterparty is counted');
+  assert.equal(a.rows, 9);
+  assert.equal(a.names.length, 6, 'names are capped, the count is not');
+  assert.equal(alsoMatches(db, 'out', 'הוט מובייל', 'הוט מובייל בעמ').total, 0);
 });
 
 test('proposals live in SQLite: save keeps decisions, approve/undo/reject move status in the same transaction', (t) => {
@@ -245,12 +248,57 @@ test('proposals live in SQLite: save keeps decisions, approve/undo/reject move s
   assert.equal(p.status, 'approved'); assert.equal(p.bucket, 'suppliers_other', 'decided proposals keep their bucket');
   assert.equal(listProposals(db).find((x) => x.counterparty === 'ספק ב').status, 'rejected');
   assert.equal(listProposals(db).find((x) => x.counterparty === 'חדש').status, 'pending');
-  // undo reopens the proposal in the same transaction
+  // undo marks the proposal "undone" in the same transaction; it survives later saves even if a built-in now claims the rows
   const u = removeRule(db, { side: 'out', match: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
   assert.equal(u.reopened, 1);
-  assert.equal(listProposals(db).find((x) => x.counterparty === 'הוט מובייל בעמ').status, 'pending');
-  // a pending proposal whose name is no longer unclassified disappears on the next save
+  let und = listProposals(db).find((x) => x.counterparty === 'הוט מובייל בעמ');
+  assert.equal(und.status, 'undone'); assert.equal(und.currentBucket, 'unclassified');
   saveProposals(db, [mk('ספק ב', 'rent')]);
+  und = listProposals(db).find((x) => x.counterparty === 'הוט מובייל בעמ');
+  assert.equal(und.status, 'undone', 'kept');
+  // and can be approved again with another category
+  applyProposal(db, { side: 'out', match: 'הוט מובייל בעמ', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  assert.equal(listProposals(db).find((x) => x.counterparty === 'הוט מובייל בעמ').status, 'approved');
+  // a pending proposal whose name is no longer unclassified disappears on the next save
   assert.equal(listProposals(db).some((x) => x.counterparty === 'חדש'), false);
   assert.throws(() => setProposalStatus(db, { side: 'out', counterparty: 'אין', status: 'rejected' }), /לא נמצאה/);
+});
+
+test('status transitions are atomic: approve then reject (or approve twice) cannot disagree with the rule', (t) => {
+  const db = tmpDb(t, 'test-cla12.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  saveProposals(db, [{ side: 'out', counterparty: 'הוט מובייל בעמ', match: 'הוט מובייל', bucket: 'rent', group: 'expense', label: 'x', reason: '', confidence: 'high', count: 1, total: -3000 }]);
+  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  assert.throws(() => setProposalStatus(db, { side: 'out', counterparty: 'הוט מובייל בעמ', status: 'rejected' }), /כבר אושרה/, 'no reject over an active rule');
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'team', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN), /כבר הוחלטה/, 'no second approve without undo');
+  assert.equal(listProposals(db)[0].bucket, 'rent');
+});
+
+test('two proposals on the same rule: approving the second updates the first to the category in force', (t) => {
+  const db = tmpDb(t, 'test-cla13.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  tx(db, 'b1', '2026-07-01', -3000, 'הוט אינטרנט', 'unclassified', 'unclassified');
+  const mk = (c, b) => ({ side: 'out', counterparty: c, match: 'הוט', bucket: b, group: 'expense', label: 'x', reason: '', confidence: 'high', count: 1, total: -3000 });
+  saveProposals(db, [mk('הוט מובייל בעמ', 'suppliers_other'), mk('הוט אינטרנט', 'rent')]);
+  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, FILE_RULES_MIN);
+  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'rent', counterparty: 'הוט אינטרנט' }, FILE_RULES_MIN);
+  const ps = listProposals(db);
+  assert.ok(ps.every((p) => p.status === 'approved' && p.bucket === 'rent'), 'one rule, one category, both proposals say so');
+  assert.equal(listRules(db).length, 1);
+  assert.ok(db.prepare(`SELECT bucket FROM bank_transactions`).all().every((r) => r.bucket === 'rent'));
+});
+
+test('saveProposals records the run in the same transaction; legacy proposals.json decisions are imported once', (t) => {
+  const db = tmpDb(t, 'test-cla14.db');
+  saveProposals(db, [], { note: 'x' });
+  assert.equal(db.prepare(`SELECT COUNT(*) n FROM agent_runs WHERE agent='classify' AND ok=1`).get().n, 1);
+  const f = join(ROOT, 'data', `legacy-${process.pid}.json`);
+  writeFileSync(f, JSON.stringify({ ts: '2026-08-01T00:00:00Z', proposals: [
+    { side: 'out', counterparty: 'ישן', match: 'ישן', bucket: 'rent', group: 'expense', status: 'approved', count: 1, total: -1 },
+    { side: 'out', counterparty: 'פתוח', match: 'פתוח', bucket: 'rent', group: 'expense', status: 'pending', count: 1, total: -1 },
+  ] }));
+  t.after(() => { rmSync(f, { force: true }); rmSync(f + '.imported', { force: true }); });
+  assert.equal(importLegacyProposals(db, f), 1, 'only decisions are imported');
+  assert.equal(listProposals(db)[0].status, 'approved');
+  assert.equal(importLegacyProposals(db, f), 0, 'file was renamed; second call is a no-op');
 });

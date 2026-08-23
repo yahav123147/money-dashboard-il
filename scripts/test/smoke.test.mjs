@@ -114,49 +114,44 @@ test('demo seed lights every panel and stays deterministic', async (t) => {
   assert.deepEqual(total(db3), total(db));
 });
 
-test('demo seed: any real record blocks the guard; --force wipes every table; config is written to an isolated dir', async (t) => {
+test('demo seed: any real record or customised config blocks the guard; --force backs up then wipes; everything in an isolated dir', async (t) => {
   const { spawnSync } = await import('node:child_process');
   const { openDb } = await import('../lib/db.mjs');
   const { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } = await import('node:fs');
-  const DB = join(ROOT, 'data', 'test-demo-guard.db');
-  const CFG = join(ROOT, 'data', 'test-demo-config');
-  for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true });
-  rmSync(CFG, { recursive: true, force: true }); mkdirSync(CFG, { recursive: true });
-  for (const f of readdirSync(join(ROOT, 'config'))) if (f.endsWith('.json')) writeFileSync(join(CFG, f), readFileSync(join(ROOT, 'config', f)));
+  // Everything this test touches lives under one unique scratch dir: db, config, agent output, backups.
+  const SCRATCH = join(ROOT, 'data', `test-demo-${process.pid}-${Math.random().toString(36).slice(2, 8)}`);
+  const DB = join(SCRATCH, 'money.db');
+  const CFG = join(SCRATCH, 'config');
+  mkdirSync(CFG, { recursive: true });
+  for (const f of readdirSync(join(ROOT, 'config.defaults'))) if (f.endsWith('.json')) writeFileSync(join(CFG, f), readFileSync(join(ROOT, 'config.defaults', f)));
   const realBefore = Object.fromEntries(readdirSync(join(ROOT, 'config')).filter((f) => f.endsWith('.json')).map((f) => [f, readFileSync(join(ROOT, 'config', f), 'utf8')]));
-  t.after(() => { for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true }); rmSync(CFG, { recursive: true, force: true }); });
+  t.after(() => rmSync(SCRATCH, { recursive: true, force: true }));
   const db = openDb(DB);
   db.prepare(`INSERT INTO cardcom_sales (deal_id, date, amount) VALUES ('d1', '2026-07-01', 100)`).run(); // only a sale, no bank rows, no rules
   db.close();
-  // a calibrated config (recurring item) must also block the guard on its own
   const recPath = join(CFG, 'recurring.json');
   const rec = JSON.parse(readFileSync(recPath, 'utf8')); rec.items = [{ name: 'שכירות אמיתית', day: 1, amount: -5000, bucket: 'rent' }]; writeFileSync(recPath, JSON.stringify(rec));
-  mkdirSync(join(ROOT, 'data', 'review'), { recursive: true }); writeFileSync(join(ROOT, 'data', 'review', 'latest.json'), '{"ok":true,"text":"real review"}');
-  t.after(() => rmSync(join(ROOT, 'data', 'review'), { recursive: true, force: true }));
+  mkdirSync(join(SCRATCH, 'review'), { recursive: true }); writeFileSync(join(SCRATCH, 'review', 'latest.json'), '{"ok":true,"text":"real review"}');
   const env = { ...process.env, MONEY_DB_PATH: DB, MONEY_CONFIG_DIR: CFG, SECRETS_DISABLE_KEYCHAIN: '1' };
   const r1 = spawnSync(process.execPath, [join(ROOT, 'scripts', 'demo-seed.mjs')], { env, encoding: 'utf8', cwd: ROOT });
   assert.notEqual(r1.status, 0, 'guard must refuse: a sale is data');
   assert.match(r1.stderr, /recurring.json/, 'and the customised config is named');
+  assert.equal(openDb(DB).prepare(`SELECT COUNT(*) n FROM cardcom_sales`).get().n, 1, 'untouched');
   const r2 = spawnSync(process.execPath, [join(ROOT, 'scripts', 'demo-seed.mjs'), '--force'], { env, encoding: 'utf8', cwd: ROOT });
   assert.equal(r2.status, 0, r2.stderr);
   const db2 = openDb(DB);
   assert.equal(db2.prepare(`SELECT COUNT(*) n FROM cardcom_sales WHERE deal_id='d1'`).get().n, 0, 'real sale wiped by --force');
-  assert.equal(existsSync(join(ROOT, 'data', 'review', 'latest.json')), false, 'old agent output wiped');
-  assert.deepEqual(JSON.parse(readFileSync(recPath, 'utf8')).items, [], 'config reset to defaults');
-  const backups = readdirSync(join(ROOT, 'data')).filter((f) => f.startsWith('config-backup-'));
-  assert.ok(backups.length >= 1, 'and backed up first');
-  assert.equal(JSON.parse(readFileSync(join(ROOT, 'data', backups[0], 'recurring.json'), 'utf8')).items[0].name, 'שכירות אמיתית');
-  t.after(() => { for (const b of backups) rmSync(join(ROOT, 'data', b), { recursive: true, force: true }); });
   assert.ok(db2.prepare('SELECT COUNT(*) n FROM cardcom_sales').get().n > 0, 'demo sales present');
-  // a full reclassify reproduces the seeded buckets exactly (demo rules were written)
+  assert.equal(existsSync(join(SCRATCH, 'review', 'latest.json')), false, 'old agent output wiped');
+  assert.deepEqual(JSON.parse(readFileSync(recPath, 'utf8')).items, [], 'config reset to defaults');
+  const backups = readdirSync(SCRATCH).filter((f) => f.startsWith('config-backup-'));
+  assert.equal(backups.length, 1, 'backed up first, into the same data dir');
+  assert.equal(JSON.parse(readFileSync(join(SCRATCH, backups[0], 'recurring.json'), 'utf8')).items[0].name, 'שכירות אמיתית');
   const { classifyAll, loadRules } = await import('../lib/classify.mjs');
   const before = db2.prepare('SELECT id, bucket FROM bank_transactions ORDER BY id').all();
   classifyAll(db2, loadRules(join(CFG, 'rules.json')));
-  const after = db2.prepare('SELECT id, bucket FROM bank_transactions ORDER BY id').all();
-  assert.deepEqual(after, before, 'reclassify is a no-op on demo data');
+  assert.deepEqual(db2.prepare('SELECT id, bucket FROM bank_transactions ORDER BY id').all(), before, 'reclassify is a no-op on demo data');
   db2.close();
-  // the real config directory was never touched
   for (const [f, txt] of Object.entries(realBefore)) assert.equal(readFileSync(join(ROOT, 'config', f), 'utf8'), txt, `config/${f} untouched`);
-  assert.equal(JSON.parse(readFileSync(join(CFG, 'settings.json'), 'utf8')).entityType, 'murshe', 'demo config went to the isolated dir');
-  assert.ok(existsSync(join(CFG, 'rules.json')));
+  assert.equal(existsSync(join(ROOT, 'data', 'review')), false, 'nothing written to the real data dir');
 });

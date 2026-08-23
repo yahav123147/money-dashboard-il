@@ -25,6 +25,7 @@ export async function POST(req) {
     const p = listProposals(db).find((x) => x.side === body.side && x.counterparty === name);
     if (!p) return Response.json({ error: 'הצעה לא נמצאה' }, { status: 404 });
     if (body.action === 'approve') {
+      if (!['pending', 'undone'].includes(p.status)) return Response.json({ error: 'ההצעה כבר הוחלטה' }, { status: 409 });
       const res = applyProposal(db, { side: p.side, match: body.match || p.match, bucket: body.bucket || p.bucket, counterparty: p.counterparty });
       return Response.json({ ok: true, proposal: { ...p, status: 'approved', reclassified: res.reclassified } });
     }

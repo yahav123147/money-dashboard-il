@@ -236,19 +236,24 @@ function syncAccounts(db, env, today) {
 }
 
 // ---------- transactions ----------
-function syncTransactions(db, env, from) {
+// Network first (no lock held), then the rows, the pending cleanup, the
+// classification and the counterparties rollup in ONE write transaction:
+// upsertTx writes rows with bucket=null, so a failure after the upsert but
+// before classifyAll must roll the rows back too, never leave nulls.
+function fetchTransactions(env, from) {
   const res = financy(env, 'transactions', 'list', '--from', from, '--all');
-  const raws = res.data || [];
+  return (res.data || []).filter((raw) => raw.id);
+}
+function applyTransactions(db, raws) {
   const ids = [];
-  const applyAll = db.transaction(() => {
-    for (const raw of raws) {
-      if (!raw.id) continue;
-      upsertTx(db, parseFinancyTx(raw));
-      ids.push(raw.id);
-    }
-  });
-  applyAll();
-  return ids;
+  let classified = 0; let pending = null;
+  db.transaction(() => {
+    for (const raw of raws) { upsertTx(db, parseFinancyTx(raw)); ids.push(raw.id); }
+    pending = cleanupPendingRows(db, ids);
+    classified = classifyAll(db);
+    rebuildCounterparties(db);
+  }).immediate();
+  return { ids, pending, classified };
 }
 
 // ---------- main ----------
@@ -267,10 +272,8 @@ async function main() {
     const refreshNote = await maybeRefresh(db, env);
     const { accountCount, snapRows } = syncAccounts(db, env, today);
     const from = daysAgo(today, LOOKBACK_DAYS);
-    const txIds = syncTransactions(db, env, from);
-    const pending = cleanupPendingRows(db, txIds);
-    const classified = classifyAll(db);
-    rebuildCounterparties(db);
+    const raws = fetchTransactions(env, from);
+    const { ids: txIds, pending, classified } = applyTransactions(db, raws);
     const note = `refresh=${refreshNote}; accounts=${accountCount}; snapshots=${snapRows}; tx(from ${from})=${txIds.length}; pendingDrop=${pending.stale}stale+${pending.dupes}dup; classified=${classified}`;
     logSync(db, 'financy', 1, note);
     console.log('financy-sync OK:', note);

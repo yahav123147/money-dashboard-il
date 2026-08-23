@@ -977,3 +977,5 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 .ask-input { flex: 1; min-width: 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: 0.88rem; }
 .ask-input:focus { outline: none; border-color: var(--gold); }
 @media (max-width: 600px) { .ask-fab-label { display: none; } .ask-fab { padding: 10px; } }
+
+.cl-select { padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; flex: 0 1 200px; }
