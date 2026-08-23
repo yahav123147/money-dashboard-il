@@ -17,7 +17,21 @@
       "קארדקום",
       "CARDCOM"
     ],
-    "useCardIssuers": true
+    "useCardIssuers": true,
+    "acquirers": {
+      "Isracard": {
+        "keywords": [
+          "ישראכרט",
+          "אמריקן אקספרס"
+        ]
+      },
+      "PayPal": {
+        "keywords": [
+          "paypal",
+          "פייפאל"
+        ]
+      }
+    }
   },
-  "_settlement": "התאמת מכירות לזיכויים בבנק. mode=daily: כל יום מכירות צפוי לזיכוי אחד אחרי lagDays ימים (חלון windowDays). mode=monthly: כל חודש מכירות צפוי לזיכוי בחודש הבא (ב-dayOfMonth ±5, או בכל החודש אם null). feePct = עמלת סליקה שמנוכה מראש (0 אם העמלה נגבית בנפרד). tolerancePct = סטייה מותרת לפני התראה. keywords = איך הזיכוי נראה בבנק; useCardIssuers מוסיף גם את רשימת cardIssuers מ-rules.json."
+  "_settlement": "התאמת מכירות לזיכויים בבנק. mode=daily: כל יום מכירות צפוי לזיכוי אחד אחרי lagDays ימים (חלון windowDays). mode=monthly: כל חודש מכירות צפוי לזיכוי בחודש הבא (ב-dayOfMonth ±5, או בכל החודש אם null). feePct = עמלת סליקה שמנוכה מראש (0 אם העמלה נגבית בנפרד). tolerancePct = סטייה מותרת לפני התראה. keywords = איך הזיכוי נראה בבנק; useCardIssuers מוסיף גם את רשימת cardIssuers מ-rules.json. acquirers = סולקים אחרים שקארדקום מנתב אליהם (אמקס דרך ישראכרט, פייפאל) ואיך הזיכוי שלהם נראה בבנק; כל סולק מותאם בנפרד."
 }

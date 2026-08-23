@@ -16,14 +16,14 @@ export function StatTiles({ b }) {
         <span className="stat-s">עו"ש, נכון להיום</span>
       </div>
       <div className="stat">
-        <span className="stat-k">הנקודה הנמוכה הקרובה</span>
+        <span className="stat-k">היתרה הנמוכה ביותר ב-30 יום</span>
         <span className={`stat-v num${dip && dip.amount < 0 ? ' neg' : ''}${dip ? '' : ' none'}`}>{dip ? fmtIls(dip.amount) : 'אין'}</span>
-        <span className="stat-s">{dip ? `ב${hebDay(dip.date)}, לפי הקבועות` : 'אין תחזית עדיין'}</span>
+        <span className="stat-s">{dip ? `ב${hebDay(dip.date)}, אחרי ההוצאות הקבועות ולפני התקבול הבא` : 'אין תחזית עדיין'}</span>
       </div>
       <div className="stat">
-        <span className="stat-k">התשלום הבא למס</span>
+        <span className="stat-k">תשלום המס הקרוב</span>
         <span className={`stat-v num${np ? '' : ' none'}`}>{np ? fmtIls(np.amount) : 'אין'}</span>
-        <span className="stat-s">{np ? `${np.what} · עד ${hebDay(np.date)}` : 'שום תשלום מס לא ממתין'}</span>
+        <span className="stat-s">{np ? `${np.what} · עד ${hebDay(np.date)}` : 'לא ידוע על תשלום מס בשבועות הקרובים'}</span>
       </div>
     </div>
   );

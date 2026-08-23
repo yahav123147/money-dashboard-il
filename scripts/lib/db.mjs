@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS counterparties (
   name TEXT PRIMARY KEY, first_seen TEXT, last_seen TEXT, tx_count INTEGER);
 CREATE TABLE IF NOT EXISTS cardcom_sales (
   deal_id TEXT PRIMARY KEY, dt TEXT, date TEXT, amount REAL,
-  product TEXT, product_raw TEXT, product_source TEXT, updated_at TEXT);
+  product TEXT, product_raw TEXT, product_source TEXT, updated_at TEXT,
+  acquirer TEXT, payments INTEGER, first_payment REAL, const_payment REAL);
 CREATE INDEX IF NOT EXISTS idx_cc_date ON cardcom_sales(date);
 `;
 
@@ -41,6 +42,10 @@ export function openDb(path = DB_PATH) {
   }
   if (!txCols.includes('expense_channel')) {
     db.exec('ALTER TABLE bank_transactions ADD COLUMN expense_channel TEXT');
+  }
+  const ccCols = db.prepare('PRAGMA table_info(cardcom_sales)').all().map((c) => c.name);
+  for (const [col, type] of [['acquirer', 'TEXT'], ['payments', 'INTEGER'], ['first_payment', 'REAL'], ['const_payment', 'REAL']]) {
+    if (!ccCols.includes(col)) db.exec(`ALTER TABLE cardcom_sales ADD COLUMN ${col} ${type}`);
   }
   return db;
 }

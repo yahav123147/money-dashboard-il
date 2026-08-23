@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { fmtIls, hebDay, EmptyState } from './format';
 
+const ACQ = { CardCom: 'קארדקום', Isracard: 'ישראכרט (אמקס)', PayPal: 'פייפאל', Unknown: 'לא ידוע' };
+
 // CardCom ↔ bank: one row per settlement period, a verdict each. Hidden when
 // the CardCom module is off. The question this panel answers is "did the
 // money I cleared actually land?", so missing rows come first.
@@ -68,6 +70,11 @@ export default function Reconcile() {
       <div className="hero-sub">{sub}</div>
       <div className="su-hint" style={{ marginTop: 6 }}>{counts}. הבדיקה: לכל יום מכירות, האם נכנס לבנק זיכוי סליקה בסכום המתאים תוך {data.windowDays ?? 'כמה'} ימים.</div>
 
+      {data.byAcquirer && Object.keys(data.byAcquirer).length > 1 ? (
+        <div className="su-hint" style={{ marginTop: 6 }}>
+          {Object.entries(data.byAcquirer).map(([a, v]) => `${ACQ[a] || a}: ${fmtIls(v.received)} מתוך ${fmtIls(v.expected)}${v.missing ? ` (חסר ${fmtIls(v.missing)})` : ''}`).join(' · ')}
+        </div>
+      ) : null}
       {rows.length === 0 ? <EmptyState text="אין מכירות בתקופה" /> : (
         <div style={{ marginTop: 14 }}>
           {shown.length === 0 ? <div className="su-hint">אין בעיות פתוחות. {rows.length} תקופות, כולן נחתו או עדיין בחלון.</div> : null}
@@ -77,15 +84,15 @@ export default function Reconcile() {
               <div className="kv" key={row.key} title={row.credits.map((c) => `${c.date} ${c.desc} ${c.amount}`).join('\n')} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                   <span className="k">
-                    <span className={`rc-dot ${st.cls}`} /> {data.mode === 'monthly' ? 'מכירות חודש' : 'מכירות'} {fmtLabel(row)}: נסלקו {fmtIls(row.gross)}
+                    <span className={`rc-dot ${st.cls}`} /> {data.mode === 'monthly' ? 'זיכוי' : 'זיכוי ליום'} {fmtLabel(row)}{row.acquirer && row.acquirer !== data.primaryAcquirer ? ` · ${ACQ[row.acquirer] || row.acquirer}` : ''}: צפוי {fmtIls(row.expected)}{row.fromInstallments ? ` (מתוכו ${fmtIls(row.fromInstallments)} תשלומים)` : ''}
                   </span>
                   <span className={`v num ${st.cls}`}>{st.label}</span>
                 </div>
                 <div className="su-hint" style={{ margin: 0 }}>
-                  {row.status === 'matched' ? `נכנסו לבנק ${fmtIls(row.received)} ב${hebDay(row.credits[0]?.date)}`
-                    : row.status === 'pending' ? `צפוי להיכנס לבנק ${fmtIls(row.expected)} עד ${hebDay(row.windowTo)}`
-                    : row.status === 'partial' ? `צפוי ${fmtIls(row.expected)}, נכנסו ${fmtIls(row.received)} (${row.diff > 0 ? '+' : ''}${fmtIls(row.diff)})`
-                    : `צפוי ${fmtIls(row.expected)} עד ${hebDay(row.windowTo)}, לא נמצא זיכוי בבנק. לבדוק מול חברת הסליקה`}
+                  {row.status === 'matched' ? `נכנסו לבנק ${fmtIls(row.received)}${row.credits.length === 1 ? ` ב${hebDay(row.credits[0].date)}` : ` ב-${row.credits.length} זיכויים`}`
+                    : row.status === 'pending' ? `צפוי להיכנס לבנק עד ${hebDay(row.windowTo)}`
+                    : row.status === 'partial' ? `נכנסו ${fmtIls(row.received)} (${row.diff > 0 ? '+' : ''}${fmtIls(row.diff)})`
+                    : `לא נמצא זיכוי בבנק עד ${hebDay(row.windowTo)}. ${row.acquirer && row.acquirer !== data.primaryAcquirer ? 'אם נכנס לחשבון אחר, לחבר אותו' : 'לבדוק מול חברת הסליקה'}`}
                 </div>
               </div>
             );

@@ -31,6 +31,7 @@ test('toRow keeps only deal id, time, amount and product', () => {
   assert.deepEqual(row, {
     deal_id: '12345', dt: '2026-03-04T10:15:00', date: '2026-03-04', amount: 490,
     product: 'קורס דיגיטלי', product_raw: 'קורס דיגיטלי', product_source: 'custom_field',
+    acquirer: null, payments: 1, first_payment: null, const_payment: null,
   });
   const text = JSON.stringify(row);
   assert.ok(!text.includes('פלוני') && !text.includes('example.com') && !text.includes('0500000000'));

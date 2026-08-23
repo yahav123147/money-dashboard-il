@@ -7,7 +7,8 @@
 // Endpoint: POST https://secure.cardcom.solutions/api/v11/Transactions/ListTransactions
 //   request:  ApiName, ApiPassword, FromDate "DDMMYYYY", ToDate "DDMMYYYY", Page, Page_size
 //   response: Tranzactions[] with TranzactionId, Amount, CreateDate "YYYY-MM-DDTHH:mm:ss",
-//             IsRefund, CustomFields[] (Id = config.productFieldId carries the product name)
+//             IsRefund, CustomFields[] (Id = config.productFieldId carries the product name),
+//             Acquire, NumberOfPayments, FirstPaymentAmount, ConstPaymentAmount
 //
 // PRIVACY: the CardCom payload carries the buyer's name, ID number, phone and
 // email. We keep only deal id, time, amount and product name. Nothing else is
@@ -71,20 +72,27 @@ export function toRow(tx, cfg) {
     product,
     product_raw: raw,
     product_source: source,
+    // Settlement facts (no PII): who clears it and the installment plan.
+    acquirer: tx.Acquire ? String(tx.Acquire) : null,
+    payments: Number(tx.NumberOfPayments) || 1,
+    first_payment: tx.FirstPaymentAmount != null ? Number(tx.FirstPaymentAmount) : null,
+    const_payment: tx.ConstPaymentAmount != null ? Number(tx.ConstPaymentAmount) : null,
   };
 }
 
 // product / product_source are sticky: a resolved name is never overwritten by
 // an unresolved one from a later run (SQLite: bare column = existing row).
 export const CARDCOM_UPSERT_SQL = `
-  INSERT INTO cardcom_sales (deal_id, dt, date, amount, product, product_raw, product_source, updated_at)
-  VALUES (@deal_id, @dt, @date, @amount, @product, @product_raw, @product_source, datetime('now'))
+  INSERT INTO cardcom_sales (deal_id, dt, date, amount, product, product_raw, product_source, updated_at, acquirer, payments, first_payment, const_payment)
+  VALUES (@deal_id, @dt, @date, @amount, @product, @product_raw, @product_source, datetime('now'), @acquirer, @payments, @first_payment, @const_payment)
   ON CONFLICT(deal_id) DO UPDATE SET
     dt=excluded.dt, date=excluded.date, amount=excluded.amount,
     product        = CASE WHEN excluded.product_source = 'unknown' THEN product        ELSE excluded.product        END,
     product_raw    = excluded.product_raw,
     product_source = CASE WHEN excluded.product_source = 'unknown' THEN product_source ELSE excluded.product_source END,
-    updated_at     = datetime('now')
+    updated_at     = datetime('now'),
+    acquirer = excluded.acquirer, payments = excluded.payments,
+    first_payment = excluded.first_payment, const_payment = excluded.const_payment
 `;
 
 async function fetchTransactions(fromIso, toIso) {
