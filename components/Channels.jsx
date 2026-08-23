@@ -53,10 +53,11 @@ export default function Channels({ channels: initial, month }) {
   const label = monthEntry ? hebMonth(month) : 'מתחילת שנת המס';
   const allChannels = [...(d.channels || [])];
   if (view.byChannel?.[d.unmatchedLabel]) allChannels.push(d.unmatchedLabel);
-  const rows = allChannels
+  const allRows = allChannels
     .map((c) => ({ name: c, ...(view.byChannel?.[c] || { amount: 0, count: 0 }) }))
-    .filter((x) => x.amount !== 0 || d.channels.includes(x.name))
     .sort((a, b) => b.amount - a.amount);
+  const rows = allRows.filter((x) => x.amount !== 0);
+  const zero = allRows.filter((x) => x.amount === 0 && x.name !== d.unmatchedLabel);
   const total = view.total || 0;
   const max = Math.max(1, ...rows.map((x) => x.amount));
   const ytdTotal = d.ytd?.total || 0;
@@ -101,6 +102,7 @@ export default function Channels({ channels: initial, month }) {
           })}
         </div>
       ) : d.channels.length > 0 ? <EmptyState text="אין הכנסות בתקופה" /> : null}
+      {zero.length > 0 ? <p className="su-hint" style={{ marginTop: 8 }}>{zero.length === 1 ? 'ערוץ אחד' : `${zero.length} ערוצים`} ללא הכנסה בתקופה: {zero.map((z) => z.name).join(' · ')}</p> : null}
 
       <form onSubmit={addChannel} className="su-actions" style={{ marginTop: 14 }}>
         <input className="su-input" style={{ direction: 'rtl', textAlign: 'right', minWidth: 200 }} placeholder="ערוץ חדש, למשל: ליווי עסקי" value={newChannel} onChange={(e) => setNewChannel(e.target.value)} />

@@ -853,3 +853,61 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 .ch-card.ch-unm { border-style: dashed; }
 .ch-card.ch-unm::before { background: linear-gradient(to bottom, var(--ink-3), transparent); }
 .ch-card.ch-unm .ch-share-fill { background: var(--ink-3); opacity: 0.5; }
+
+/* --- two screens: tabs, sections --- */
+.tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 100px; padding: 2px; gap: 2px; margin-inline-end: 6px; }
+.tab { font-size: 0.78rem; padding: 4px 14px; border-radius: 100px; color: var(--ink-3); text-decoration: none; }
+.tab.on { background: var(--gold); color: #fff; }
+.tab:not(.on):hover { color: var(--ink-2); }
+.sect { margin: 8px 0 30px; }
+.sect-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.sect-head h2 { font-family: var(--font-d); font-weight: 500; font-size: 1.25rem; color: var(--ink); margin: 0; }
+.sect-sub { font-size: 0.74rem; color: var(--ink-3); }
+.more { text-align: center; margin: 6px 0 0; }
+.more a { text-decoration: none; }
+
+/* --- briefing --- */
+.brief { padding: 26px 28px; }
+.brief-lines { display: flex; flex-direction: column; gap: 14px; }
+.brief-line { display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: baseline; }
+.brief-label { font-size: 0.72rem; letter-spacing: 0.18em; color: var(--ink-3); text-transform: uppercase; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.brief-text { font-size: 1.05rem; line-height: 1.6; color: var(--ink); font-weight: 300; }
+.brief-dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; flex: none; }
+.tone-attention .brief-dot { background: var(--gold); }
+.tone-action .brief-dot { background: #9a3b2e; }
+.tone-action .brief-text { font-weight: 400; }
+.brief.quiet .brief-line:last-child .brief-text { color: var(--ink-2); }
+.brief-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+.brief-num { display: flex; flex-direction: column; gap: 3px; }
+.brief-num .k { font-size: 0.7rem; letter-spacing: 0.12em; color: var(--ink-3); }
+.brief-num .v { font-family: var(--font-d); font-weight: 500; font-size: 1.7rem; line-height: 1.1; color: var(--ink); }
+.brief-num:first-child .v { font-size: 2.3rem; color: var(--gold); }
+.brief-num .s { font-size: 0.74rem; color: var(--ink-3); }
+@media (max-width: 700px) {
+  .brief-line { grid-template-columns: 1fr; gap: 4px; }
+  .brief-nums { grid-template-columns: 1fr; }
+}
+
+/* --- todo --- */
+.todo-quiet { font-size: 1rem; color: var(--ink-2); font-weight: 300; margin: 6px 0 10px; }
+.todo-group { margin-top: 12px; }
+.todo-head { font-size: 0.72rem; letter-spacing: 0.18em; color: var(--ink-3); display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.todo-item { padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.todo-item:last-child { border-bottom: none; }
+.todo-text { font-size: 0.9rem; color: var(--ink); line-height: 1.5; }
+.todo-action { font-size: 0.76rem; color: var(--gold); margin-top: 2px; }
+.todo-action::before { content: '← '; }
+.tone-plain .todo-action { color: var(--ink-3); }
+
+/* --- sales week --- */
+.sw { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: end; margin-top: 8px; }
+.sw-day { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.sw-bar-wrap { height: 70px; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.sw-bar { width: 60%; background: var(--gold); border-radius: 4px 4px 0 0; opacity: 0.75; }
+.sw-amt { font-size: 0.7rem; color: var(--ink-2); min-height: 1em; }
+.sw-date { font-size: 0.68rem; color: var(--ink-3); white-space: nowrap; }
+.sw-mark { font-size: 0.8rem; min-height: 1em; color: var(--ink-3); }
+.sw-mark.st-matched { color: #2f6b3a; }
+.sw-mark.st-missing { color: #9a3b2e; }
+.date-chip { position: relative; cursor: pointer; }
+.date-chip input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }

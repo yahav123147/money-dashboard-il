@@ -93,15 +93,16 @@ export default function Sales() {
             {p.label}
           </button>
         ))}
-        <input
-          type="date"
-          className={`mp-chip${sel === 'date' ? ' on' : ''}`}
-          aria-label="בחירת תאריך"
-          value={pickDate}
-          max={today}
-          onChange={(e) => { const v = e.target.value; setPickDate(v); if (v) setSel('date'); }}
-          onFocus={() => { if (pickDate) setSel('date'); }}
-        />
+        <label className={`mp-chip date-chip${sel === 'date' ? ' on' : ''}`}>
+          {sel === 'date' && pickDate ? hebDay(pickDate) : 'תאריך אחר…'}
+          <input
+            type="date"
+            aria-label="בחירת תאריך"
+            value={pickDate}
+            max={today}
+            onChange={(e) => { const v = e.target.value; setPickDate(v); if (v) setSel('date'); }}
+          />
+        </label>
       </nav>
 
       {sel === 'date' && !pickDate ? (
