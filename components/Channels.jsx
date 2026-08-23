@@ -74,20 +74,29 @@ export default function Channels({ channels: initial, month }) {
       ) : null}
 
       {rows.length > 0 ? (
-        <div className="ch-list">
-          {rows.map((x) => {
+        <div className="ch-cards">
+          {rows.map((x, i) => {
             const pct = total > 0 ? Math.round((x.amount / total) * 100) : 0;
-            const ytdC = d.ytd?.byChannel?.[x.name];
+            const ytdC = d.ytd?.byChannel?.[x.name] || { amount: 0, count: 0 };
+            const ytdPct = ytdTotal > 0 ? Math.round((ytdC.amount / ytdTotal) * 100) : 0;
             const isUnm = x.name === d.unmatchedLabel;
+            const isLead = i === 0 && x.amount > 0 && !isUnm;
             return (
-              <div className="ch-row" key={x.name}>
-                <div className="ch-top">
-                  <span className={`ch-name${isUnm ? ' rc-part' : ''}`}>{x.name} <span style={{ opacity: 0.55 }}>×{fmtNum(x.count)}</span></span>
-                  <span className="ch-amt num">{fmtIls(x.amount)} <span style={{ opacity: 0.55 }}>{pct}%</span></span>
+              <article className={`ch-card${isLead ? ' ch-lead' : ''}${isUnm ? ' ch-unm' : ''}`} key={x.name}>
+                <div className="ch-card-name">{x.name}</div>
+                <div className="ch-card-hero">
+                  <span className="k">{monthEntry ? hebMonth(month) : 'מתחילת השנה'}</span>
+                  <span className="v num">{fmtIls(x.amount)}</span>
                 </div>
-                <div className="ch-bar"><div className={`ch-fill${isUnm ? ' unm' : ''}`} style={{ width: `${Math.round((x.amount / max) * 100)}%` }} /></div>
-                {monthEntry && ytdC ? <div className="su-hint" style={{ margin: '2px 0 0' }}>שנה: {fmtIls(ytdC.amount)} ({ytdTotal > 0 ? Math.round((ytdC.amount / ytdTotal) * 100) : 0}%)</div> : null}
-              </div>
+                {monthEntry ? (
+                  <div className="ch-card-line"><span className="k">מתחילת השנה</span><span className="v num">{fmtIls(ytdC.amount)} <span className="ch-cnt">{ytdPct}%</span></span></div>
+                ) : null}
+                <div className="ch-card-line"><span className="k">עסקאות</span><span className="v num">{fmtNum(x.count)}{monthEntry ? <span className="ch-cnt"> · {fmtNum(ytdC.count)} בשנה</span> : null}</span></div>
+                <div className="ch-card-share">
+                  <div className="ch-share"><div className="ch-share-fill" style={{ width: `${pct}%` }} /></div>
+                  <span className="ch-share-num num">{pct}%</span>
+                </div>
+              </article>
             );
           })}
         </div>

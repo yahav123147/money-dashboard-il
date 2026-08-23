@@ -813,13 +813,43 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 .rc-part { color: #9a6b1e; }
 .rc-miss { color: #9a3b2e; }
 
-/* --- channels --- */
-.ch-list { margin-top: 6px; }
-.ch-row { padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
-.ch-row:last-child { border-bottom: none; }
-.ch-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 0.88rem; }
-.ch-name { color: var(--ink-2); }
-.ch-amt { color: var(--ink); }
-.ch-bar { height: 6px; background: var(--line-soft); border-radius: 4px; margin-top: 6px; overflow: hidden; }
-.ch-fill { height: 100%; background: var(--gold); border-radius: 4px; }
-.ch-fill.unm { background: #c9a06a; opacity: 0.6; }
+/* --- channels: one card per channel, the period figure is the hero --- */
+.ch-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 6px 0 4px;
+}
+.ch-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  background: rgba(25, 22, 19, 0.015);
+  position: relative;
+  overflow: hidden;
+}
+.ch-card::before {
+  content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: 3px;
+  background: linear-gradient(to bottom, var(--gold), transparent);
+  opacity: 0.55;
+}
+.ch-card-name { font-size: 0.82rem; font-weight: 500; color: var(--ink); margin-bottom: 10px; letter-spacing: 0.01em; }
+.ch-card-hero {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding-bottom: 10px; margin-bottom: 8px; border-bottom: 1px solid var(--line-soft);
+}
+.ch-card-hero .k { font-size: 0.7rem; color: var(--ink-3); }
+.ch-card-hero .v { font-family: var(--font-d); font-weight: 500; font-size: 1.3rem; line-height: 1; color: var(--ink); }
+.ch-card-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 0.76rem; padding: 3px 0; }
+.ch-card-line .k { color: var(--ink-3); }
+.ch-card-line .v { color: var(--ink-2); font-weight: 400; }
+.ch-cnt { color: var(--gold); font-size: 0.72rem; }
+.ch-card-share { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line-soft); }
+.ch-share { flex: 1; height: 4px; border-radius: 100px; background: var(--line-soft); overflow: hidden; }
+.ch-share-fill { height: 100%; border-radius: 100px; background: var(--gold); transition: width 0.6s ease; }
+.ch-share-num { font-size: 0.7rem; color: var(--ink-3); min-width: 30px; text-align: left; }
+.ch-card.ch-lead { border-color: var(--gold); background: rgba(138, 106, 37, 0.04); }
+.ch-card.ch-lead::before { opacity: 1; }
+.ch-card.ch-unm { border-style: dashed; }
+.ch-card.ch-unm::before { background: linear-gradient(to bottom, var(--ink-3), transparent); }
+.ch-card.ch-unm .ch-share-fill { background: var(--ink-3); opacity: 0.5; }
