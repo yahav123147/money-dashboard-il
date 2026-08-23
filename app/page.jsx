@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Hero from '@/components/Hero';
 import Sales from '@/components/Sales';
+import Reconcile from '@/components/Reconcile';
 import AccountsCard from '@/components/AccountsCard';
 import PnlTable from '@/components/PnlTable';
 import Expenses from '@/components/Expenses';
@@ -106,7 +107,10 @@ export default function Page() {
 
       <div className={isPast ? 'as-of-today' : ''}><Hero overview={overview} /></div>
 
-      <div className={isPast ? 'as-of-today' : ''}><Sales /></div>
+      <div className="grid-2">
+        <div className={isPast ? 'as-of-today' : ''}><Sales /></div>
+        <div className={isPast ? 'as-of-today' : ''}><Reconcile /></div>
+      </div>
 
       <div className="grid-3">
         <div className="g3-cell"><AdvancesGauge advances={advances} /></div>

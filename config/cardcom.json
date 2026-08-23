@@ -5,5 +5,19 @@
   "_productFieldId": "מספר השדה המותאם (CustomField) בעסקת קארדקום שמכיל את שם המוצר. 24 הוא ברירת המחדל של דפי סליקה רבים; בדוק בהגדרות הטרמינל שלך.",
   "amountNames": {},
   "_amountNames": "מיפוי סכום → שם מוצר, לעסקאות שהגיעו בלי שם. למשל {\"149\": \"מנוי חודשי\"}. השאר ריק אם לא בטוח: סכום אחד יכול לשרת כמה מוצרים.",
-  "unknownLabel": "אחר"
+  "unknownLabel": "אחר",
+  "settlement": {
+    "mode": "daily",
+    "lagDays": 1,
+    "windowDays": 4,
+    "feePct": 0,
+    "tolerancePct": 2,
+    "dayOfMonth": null,
+    "keywords": [
+      "קארדקום",
+      "CARDCOM"
+    ],
+    "useCardIssuers": true
+  },
+  "_settlement": "התאמת מכירות לזיכויים בבנק. mode=daily: כל יום מכירות צפוי לזיכוי אחד אחרי lagDays ימים (חלון windowDays). mode=monthly: כל חודש מכירות צפוי לזיכוי בחודש הבא (ב-dayOfMonth ±5, או בכל החודש אם null). feePct = עמלת סליקה שמנוכה מראש (0 אם העמלה נגבית בנפרד). tolerancePct = סטייה מותרת לפני התראה. keywords = איך הזיכוי נראה בבנק; useCardIssuers מוסיף גם את רשימת cardIssuers מ-rules.json."
 }

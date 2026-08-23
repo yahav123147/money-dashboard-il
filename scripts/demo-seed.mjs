@@ -175,6 +175,7 @@ function writeDemoConfig(entity) {
   const cPath = join(ROOT, 'config', 'cardcom.json');
   const c = JSON.parse(readFileSync(cPath, 'utf8'));
   c.enabled = true;
+  c.settlement = { ...(c.settlement || {}), feePct: 1.2 };
   writeFileSync(cPath, JSON.stringify(c, null, 2) + '\n');
 }
 
@@ -205,6 +206,22 @@ function seedSales(db, today) {
     }
   }
   db.prepare(`INSERT INTO sync_log (source, ts, ok, note) VALUES ('cardcom', datetime('now'), 1, 'demo seed')`).run();
+
+  // Matching bank credits: each sales day lands the next day net of a 1.2% fee,
+  // except one day (7 days back) that "never arrived" — so the reconciliation
+  // panel has a real finding to show. Today's and yesterday's are still pending.
+  const days = db.prepare(`SELECT date, SUM(amount) AS total FROM cardcom_sales GROUP BY date`).all();
+  for (const d of days) {
+    const back = Math.round((new Date(`${today}T12:00:00Z`) - new Date(`${d.date}T12:00:00Z`)) / 86400000);
+    if (back < 2 || back === 7) continue;
+    const landed = shiftDate(d.date, 1);
+    upsertTx(db, {
+      id: `demo-settle-${d.date}`, account_id: 'demo-checking', account_number: '123456/78', account_type: 'CHECKING',
+      provider: 'demo', date: landed, month: landed.slice(0, 7), amount: Math.round(d.total * 0.988 * 100) / 100,
+      currency: 'ILS', counterparty: 'קארדקום בע"מ', raw_desc: 'זיכוי קארדקום', status: 'completed',
+      side: 'in', bucket: 'revenue', bucket_group: 'revenue', raw_json: '{}',
+    });
+  }
   return n;
 }
 

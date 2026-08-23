@@ -2,6 +2,7 @@ import { fmtIls, hebDay, EmptyState } from './format';
 
 const GROUPS = {
   patur_ceiling: { label: 'תקרת עוסק פטור', order: -1 },
+  settlement_missing: { label: 'זיכוי סליקה שלא נחת', order: -0.5 },
   advance: { label: 'מקדמת מס', order: 0 },
   sync: { label: 'סנכרון נתונים', order: 1 },
   unclassified: { label: 'תנועות לא מסווגות', order: 2 },
