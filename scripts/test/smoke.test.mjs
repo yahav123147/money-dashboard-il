@@ -113,3 +113,30 @@ test('demo seed lights every panel and stays deterministic', async (t) => {
   const total = (d) => d.prepare('SELECT ROUND(SUM(amount),2) s, COUNT(*) n FROM bank_transactions').get();
   assert.deepEqual(total(db3), total(db));
 });
+
+test('demo seed: a classify rule alone blocks the guard; --force wipes rules with the rest', async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  const { openDb } = await import('../lib/db.mjs');
+  const { applyProposal } = await import('../lib/classify-agent.mjs');
+  const DB = join(ROOT, 'data', 'test-demo-guard.db');
+  for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true });
+  t.after(() => { for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true }); });
+  const db = openDb(DB);
+  db.prepare(`INSERT INTO bank_transactions (id, account_type, currency, amount, counterparty, raw_desc, date, month, bucket, bucket_group) VALUES ('r1','CHECKING','ILS',-3000,'ספק אמיתי','','2026-07-01','2026-07','unclassified','unclassified')`).run();
+  applyProposal(db, { side: 'out', match: 'ספק אמיתי', bucket: 'rent', counterparty: 'ספק אמיתי' });
+  db.prepare(`DELETE FROM bank_transactions`).run(); // only the rule remains
+  db.close();
+  // the seed rewrites config/; restore the exact bytes afterwards (never git checkout: it would drop uncommitted work)
+  const { readFileSync, writeFileSync, readdirSync } = await import('node:fs');
+  const cfgDir = join(ROOT, 'config');
+  const before = Object.fromEntries(readdirSync(cfgDir).filter((f) => f.endsWith('.json')).map((f) => [f, readFileSync(join(cfgDir, f))]));
+  t.after(() => { for (const [f, buf] of Object.entries(before)) writeFileSync(join(cfgDir, f), buf); });
+  const env = { ...process.env, MONEY_DB_PATH: DB, SECRETS_DISABLE_KEYCHAIN: '1' };
+  const r1 = spawnSync(process.execPath, [join(ROOT, 'scripts', 'demo-seed.mjs')], { env, encoding: 'utf8', cwd: ROOT });
+  assert.notEqual(r1.status, 0, 'guard must refuse: a real rule is data');
+  assert.match(r1.stderr, /חוקים/);
+  assert.equal(openDb(DB).prepare('SELECT COUNT(*) n FROM classify_rules').get().n, 1, 'untouched');
+  const r2 = spawnSync(process.execPath, [join(ROOT, 'scripts', 'demo-seed.mjs'), '--force'], { env, encoding: 'utf8', cwd: ROOT });
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.equal(openDb(DB).prepare('SELECT COUNT(*) n FROM classify_rules').get().n, 0, 'rules wiped by --force');
+});

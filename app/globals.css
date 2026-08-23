@@ -940,3 +940,9 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 .cl-rule { font-size: 0.72rem; color: var(--ink-3); margin-inline-start: 6px; }
 
 .cl-err { color: var(--neg); margin-bottom: 10px; }
+
+.cl-rules { margin-top: 12px; }
+.cl-rules summary { font-size: 0.8rem; color: var(--ink-2); cursor: pointer; }
+.cl-rule-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cl-rule-row .cl-meta { margin-inline-start: 0; }
+.cl-rule-row .mp-chip { margin-inline-start: auto; }

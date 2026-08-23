@@ -30,11 +30,9 @@
   "_agentsSendDataToClaude": "true = אישרת שהסוכנים (/review, /classify) שולחים תמצית של הנתונים (שמות מוטבים, סכומים, תאריכים, תיאורים) ל-Claude דרך מנוי Claude Code שלך. false = הסוכנים מסרבים לרוץ. npm run review -- --yes מאשר פעם אחת.",
   "agentsAllowedPlans": [
     "max",
-    "pro",
-    "team",
-    "enterprise"
+    "pro"
   ],
-  "_agentsAllowedPlans": "אילו מנויי claude.ai מותרים להרצת הסוכנים. הסקריפט מסרב לכל חיבור אחר (מפתח API, Bedrock, Vertex, Foundry). [\"max\"] = רק Max.",
+  "_agentsAllowedPlans": "אילו מנויי claude.ai מותרים להרצת הסוכנים. ברירת מחדל max/pro. Team/Enterprise יכולים לקבל הגדרות מנוהלות מהשרת (ניתוב, אימות) שאי אפשר לסרוק מקומית, ולכן לא ברשימה; הוסף ביודעין. [\"max\"] = רק Max.",
   "agentsAllowInteractive": false,
   "_agentsAllowInteractive": "true = מתיר ל-/review ו-/classify לרוץ מתוך סשן Claude Code פתוח. הסקריפט לא יכול לאמת על איזה ספק הסשן עצמו רץ (מפתח API שמוסתר מתת-תהליכים), ולכן ברירת המחדל false; המסלול הנאכף הוא npm run review / npm run classify."
 }

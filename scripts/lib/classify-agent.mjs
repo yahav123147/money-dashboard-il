@@ -117,11 +117,12 @@ export function applyProposal(db, { side, match, bucket, counterparty }) {
   // next full reclassify; refuse it here, not only in the parser.
   if (!name.includes(m)) throw new Error('טקסט ההתאמה חייב להופיע בשם המוטב');
   const n = db.transaction(() => {
+    const priority = db.prepare('SELECT COALESCE(MAX(priority), 0) + 1 p FROM classify_rules').get().p;
     db.prepare(`
-      INSERT INTO classify_rules (side, match, bucket, bucket_group, counterparty, created_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(side, match) DO UPDATE SET bucket=excluded.bucket, bucket_group=excluded.bucket_group, counterparty=excluded.counterparty, created_at=excluded.created_at
-    `).run(side, m, bucket, group, name);
+      INSERT INTO classify_rules (side, match, bucket, bucket_group, counterparty, created_at, priority)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), ?)
+      ON CONFLICT(side, match) DO UPDATE SET bucket=excluded.bucket, bucket_group=excluded.bucket_group, counterparty=excluded.counterparty, created_at=excluded.created_at, priority=excluded.priority
+    `).run(side, m, bucket, group, name, priority);
     return db.prepare(`
       UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now')
       WHERE account_type='CHECKING' AND currency='ILS' AND bucket_group='unclassified'
@@ -130,4 +131,30 @@ export function applyProposal(db, { side, match, bucket, counterparty }) {
     `).run(bucket, group, side, side, name).changes;
   }).immediate();
   return { rule: { match: [m], bucket, group }, reclassified: n };
+}
+
+// The explicit rules, newest decision first, for the panel.
+export function listRules(db) {
+  return db.prepare('SELECT side, match, bucket, bucket_group AS "group", counterparty, created_at AS createdAt, priority FROM classify_rules ORDER BY priority DESC').all();
+}
+
+// Undo a rule: delete it and put the rows it classified back to unclassified
+// (by exact counterparty + direction + bucket, only rows the rule could have
+// produced), in one transaction. A full reclassify afterwards lets older
+// rules and built-ins claim what they match.
+export function removeRule(db, { side, match }, fileRules) {
+  if (side !== 'in' && side !== 'out') throw new Error('כיוון לא תקין');
+  const m = String(match || '').trim();
+  return db.transaction(() => {
+    const r = db.prepare('SELECT counterparty, bucket, bucket_group FROM classify_rules WHERE side=? AND match=?').get(side, m);
+    if (!r) throw new Error('החוק לא נמצא');
+    db.prepare('DELETE FROM classify_rules WHERE side=? AND match=?').run(side, m);
+    const n = db.prepare(`
+      UPDATE bank_transactions SET bucket='unclassified', bucket_group='unclassified', updated_at=datetime('now')
+      WHERE account_type='CHECKING' AND currency='ILS' AND bucket=? AND bucket_group=?
+        AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
+        AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
+    `).run(r.bucket, r.bucket_group, side, side, r.counterparty || '').changes;
+    return { removed: { side, match: m, bucket: r.bucket }, reverted: n };
+  }).immediate();
 }

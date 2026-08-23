@@ -251,17 +251,18 @@ function main() {
   }
   const db = openDb();
   try {
-    const existing = db.prepare('SELECT COUNT(*) n FROM bank_transactions').get().n;
+    const existing = db.prepare('SELECT COUNT(*) n FROM bank_transactions').get().n
+      + db.prepare('SELECT COUNT(*) n FROM classify_rules').get().n;
     const settings = JSON.parse(readFileSync(join(ROOT, 'config', 'settings.json'), 'utf8'));
     if ((existing > 0 || settings.entityType) && !force) {
-      console.error(`יש כבר נתונים (${existing} תנועות) או קונפיג מוגדר (entityType=${settings.entityType}).`);
+      console.error(`יש כבר נתונים (${existing} תנועות/חוקים) או קונפיג מוגדר (entityType=${settings.entityType}).`);
       console.error('מצב הדגמה לא דורס נתונים אמיתיים. אם זו באמת הכוונה: npm run demo -- --force');
       console.error('לאיפוס מלא: git checkout config/ && rm -f data/money.db*');
       process.exitCode = 1;
       return;
     }
     if (force && existing > 0) {
-      db.exec('DELETE FROM bank_transactions; DELETE FROM accounts; DELETE FROM balance_snapshots; DELETE FROM counterparties; DELETE FROM cardcom_sales;');
+      db.exec('BEGIN IMMEDIATE; DELETE FROM bank_transactions; DELETE FROM accounts; DELETE FROM balance_snapshots; DELETE FROM counterparties; DELETE FROM cardcom_sales; DELETE FROM classify_rules; DELETE FROM sync_log; COMMIT;');
     }
     const today = israelToday();
     const { rows } = seedDemo(db, entity, today);

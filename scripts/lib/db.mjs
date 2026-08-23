@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS cardcom_sales (
 CREATE INDEX IF NOT EXISTS idx_cc_date ON cardcom_sales(date);
 CREATE TABLE IF NOT EXISTS classify_rules (
   side TEXT NOT NULL, match TEXT NOT NULL, bucket TEXT NOT NULL, bucket_group TEXT NOT NULL,
-  counterparty TEXT, created_at TEXT, PRIMARY KEY (side, match));
+  counterparty TEXT, created_at TEXT, priority INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (side, match));
 `;
 
 export function openDb(path = DB_PATH) {
@@ -47,6 +47,8 @@ export function openDb(path = DB_PATH) {
   if (!txCols.includes('expense_channel')) {
     db.exec('ALTER TABLE bank_transactions ADD COLUMN expense_channel TEXT');
   }
+  const crCols = db.prepare('PRAGMA table_info(classify_rules)').all().map((c) => c.name);
+  if (!crCols.includes('priority')) db.exec('ALTER TABLE classify_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0');
   const ccCols = db.prepare('PRAGMA table_info(cardcom_sales)').all().map((c) => c.name);
   for (const [col, type] of [['acquirer', 'TEXT'], ['payments', 'INTEGER'], ['first_payment', 'REAL'], ['const_payment', 'REAL']]) {
     if (!ccCols.includes(col)) db.exec(`ALTER TABLE cardcom_sales ADD COLUMN ${col} ${type}`);

@@ -27,6 +27,16 @@ export default function Classify() {
     } catch (e) { setErr(`"${p.counterparty}": ${String(e?.message || e)}`); }
     finally { setBusy(null); }
   };
+  const undo = async (r) => {
+    setBusy('rule' + r.side + r.match); setErr(null);
+    try {
+      const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'undo', side: r.side, match: r.match }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) setErr(`ביטול "${r.match}": ${j.error || 'נכשל'}`);
+      await load();
+    } finally { setBusy(null); }
+  };
+  const rules = d?.rules || [];
   const pending = (d?.proposals || []).filter((p) => p.status === 'pending');
   const done = (d?.proposals || []).filter((p) => p.status === 'approved');
   const now = d?.now;
@@ -67,6 +77,21 @@ export default function Classify() {
           ))}
         </ul>
       )}
+      {rules.length ? (
+        <details className="cl-rules">
+          <summary>{rules.length === 1 ? 'חוק קבוע אחד' : `${rules.length} חוקים קבועים`} מאישורים קודמים</summary>
+          <ul className="cl-list">
+            {rules.map((r) => (
+              <li className="cl-item cl-rule-row" key={r.side + r.match}>
+                <span className="cl-name">"{r.match}"</span>
+                <span className="cl-bucket">{r.bucket}</span>
+                <span className="cl-meta">{r.side === 'in' ? 'נכנס' : 'יוצא'} · {r.counterparty}</span>
+                <button className="mp-chip" disabled={busy === 'rule' + r.side + r.match} onClick={() => undo(r)}>בטל</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       {d?.ts && pending.length ? <p className="q-foot">הצעות מ-{new Date(d.ts).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} · אישור שומר חוק קבוע במסד ומסווג את התנועות של המוטב</p> : null}
     </section>
   );

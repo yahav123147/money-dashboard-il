@@ -4,7 +4,7 @@ import { rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, upsertTx } from '../lib/db.mjs';
-import { gatherUnclassified, parseProposals, applyProposal, BANK_BUCKETS } from '../lib/classify-agent.mjs';
+import { gatherUnclassified, parseProposals, applyProposal, listRules, removeRule, BANK_BUCKETS } from '../lib/classify-agent.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 function tmpDb(t, name) {
@@ -150,4 +150,47 @@ test('approvals from two processes, concurrently with full reclassify runs, lose
   assert.equal(db2.prepare(`SELECT COUNT(*) n FROM classify_rules`).get().n, 10, 'every approval kept');
   assert.equal(db2.prepare(`SELECT COUNT(*) n FROM bank_transactions WHERE bucket='rent'`).get().n, 40, 'a concurrent full reclassify never undid an approval');
   db2.close();
+});
+
+const FILE_RULES_MIN = { inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } }, refundPairs: [], suppliers: [] };
+
+test('newest explicit decision wins over an older broader one, also after a full reclassify', async (t) => {
+  const { classifyAll } = await import('../lib/classify.mjs');
+  const db = tmpDb(t, 'test-cla6.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' });
+  tx(db, 'a2', '2026-08-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' });
+  classifyAll(db, FILE_RULES_MIN);
+  assert.deepEqual(db.prepare(`SELECT DISTINCT bucket FROM bank_transactions WHERE counterparty='הוט מובייל בעמ'`).all().map((r) => r.bucket), ['rent'], 'newer, more specific decision holds');
+  // re-approving the old one promotes it again
+  applyProposal(db, { side: 'out', match: 'הוט', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' });
+  classifyAll(db, FILE_RULES_MIN);
+  assert.deepEqual(db.prepare(`SELECT DISTINCT bucket FROM bank_transactions WHERE counterparty='הוט מובייל בעמ'`).all().map((r) => r.bucket), ['suppliers_other']);
+  assert.equal(listRules(db)[0].match, 'הוט', 'list is newest-first');
+});
+
+test('classifyAll fails closed when the rules table cannot be read', async (t) => {
+  const { classifyAll } = await import('../lib/classify.mjs');
+  const db = tmpDb(t, 'test-cla7.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' });
+  db.exec('DROP TABLE classify_rules');
+  assert.throws(() => classifyAll(db, FILE_RULES_MIN), /classify_rules/);
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'rent', 'nothing was rewritten');
+});
+
+test('removeRule undoes an approval: rule gone, its rows back to unclassified, other rows untouched', (t) => {
+  const db = tmpDb(t, 'test-cla8.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  tx(db, 'o1', '2026-06-01', -2900, 'הוט מובייל בעמ', 'suppliers_other', 'expense'); // different bucket: not this rule's doing
+  tx(db, 'z1', '2026-06-01', -5000, 'אחר', 'rent', 'expense');
+  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' });
+  const r = removeRule(db, { side: 'out', match: 'הוט מובייל' });
+  assert.equal(r.reverted, 1);
+  assert.equal(listRules(db).length, 0);
+  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='a1'`).get().bucket_group, 'unclassified');
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='o1'`).get().bucket, 'suppliers_other');
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='z1'`).get().bucket, 'rent');
+  assert.throws(() => removeRule(db, { side: 'out', match: 'אין' }), /לא נמצא/);
 });

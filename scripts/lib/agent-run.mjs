@@ -23,7 +23,7 @@ export const DATA_NOTICE = `הסוכן שולח ל-Claude תמצית של הנת
 // could leave the subscription even though `auth status` looks fine. User,
 // project and local sources are not loaded at all (--setting-sources ""),
 // but managed settings cannot be switched off, so every file is inspected.
-const FORBIDDEN_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_API|AWS_BEARER_TOKEN|AZURE_|GOOGLE_APPLICATION|CLOUD_ML_REGION)/;
+const FORBIDDEN_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_API|CLAUDE_CODE_PROVIDER|CLAUDE_CODE_SUBPROCESS_ENV_SCRUB|AWS_BEARER_TOKEN|AZURE_|GOOGLE_APPLICATION|CLOUD_ML_REGION)/;
 export function settingsFiles(root = ROOT) {
   const files = [];
   for (const dir of ['/Library/Application Support/ClaudeCode', '/etc/claude-code']) {
@@ -59,6 +59,10 @@ export function dropSnapshots(root = ROOT) {
   for (const f of [join(root, 'data', 'review', 'snapshot.json'), join(root, 'data', 'classify', 'snapshot.json')]) rmSync(f, { force: true });
 }
 
+function readAuthStatus() {
+  return spawnSync('claude', ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30000 });
+}
+
 // The one entry point the scripts call. Exit code 2 on any failure.
 export function preflight(argv = process.argv) {
   const ok = ensureConsent(argv) && ensureSubscription();
@@ -83,16 +87,19 @@ export function ensureConsent(argv = process.argv) {
 // field is checked positively; a missing field fails, it does not pass.
 // Accepted plans come from settings.agentsAllowedPlans (default: any paid
 // claude.ai plan); set ["max"] to insist on Max.
-export function ensureSubscription() {
-  const res = spawnSync('claude', ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30000 });
+export function ensureSubscription({ status = readAuthStatus, overrides = findProviderOverrides, mdm = mdmManagedSettingsPresent, env = process.env, settingsPath = SETTINGS } = {}) {
+  const res = status();
   if (res.error || res.status !== 0) {
     console.error(`לא הצלחתי לבדוק את החיבור ל-Claude Code (${res.error?.message || 'exit ' + res.status}). לוודא ש-claude מותקן ומחובר: ${LOGIN_CMD}`);
     return false;
   }
   let st;
   try { st = JSON.parse(res.stdout); } catch { console.error('פלט לא צפוי מ-claude auth status'); return false; }
-  let allowed = ['max', 'pro', 'team', 'enterprise'];
-  try { const s = JSON.parse(readFileSync(SETTINGS, 'utf8')); if (Array.isArray(s.agentsAllowedPlans) && s.agentsAllowedPlans.length) allowed = s.agentsAllowedPlans; } catch { /* defaults */ }
+  if (!st || typeof st !== 'object') { console.error('פלט לא צפוי מ-claude auth status'); return false; }
+  // Team/Enterprise can receive server-managed settings (routing, auth)
+  // that no local scan can see, so they are not in the default list.
+  let allowed = ['max', 'pro'];
+  try { const s = JSON.parse(readFileSync(settingsPath, 'utf8')); if (Array.isArray(s.agentsAllowedPlans) && s.agentsAllowedPlans.length) allowed = s.agentsAllowedPlans; } catch { /* defaults */ }
   const plan = typeof st.subscriptionType === 'string' ? st.subscriptionType.toLowerCase() : '';
   const ok = st.loggedIn === true && st.authMethod === 'claude.ai' && st.apiProvider === 'firstParty' && allowed.includes(plan);
   if (!ok) {
@@ -101,11 +108,11 @@ export function ensureSubscription() {
   }
   // The environment this preflight inherited is the environment of whoever
   // will read the snapshot next (an interactive Claude Code session included).
-  const overrides = findProviderOverrides();
-  for (const k of Object.keys(process.env)) if (FORBIDDEN_ENV.test(k)) overrides.push(`env: ${k}`);
-  if (mdmManagedSettingsPresent()) overrides.push('MDM: com.anthropic.claudecode (הגדרות מנוהלות שלא ניתן לאמת)');
-  if (overrides.length) {
-    console.error(`הגדרות Claude Code מפנות לספק או למפתח שאינם המנוי, והסוכנים מסרבים לרוץ:\n  ${overrides.join('\n  ')}`);
+  const found = overrides();
+  for (const k of Object.keys(env)) if (FORBIDDEN_ENV.test(k)) found.push(`env: ${k}`);
+  if (mdm()) found.push('MDM: com.anthropic.claudecode (הגדרות מנוהלות שלא ניתן לאמת)');
+  if (found.length) {
+    console.error(`הגדרות Claude Code מפנות לספק או למפתח שאינם המנוי, והסוכנים מסרבים לרוץ:\n  ${found.join('\n  ')}`);
     return false;
   }
   // Inside an already-running Claude Code session the checks above describe
@@ -113,9 +120,9 @@ export function ensureSubscription() {
   // CLAUDE_CODE_SUBPROCESS_ENV_SCRUB the parent can hold an API key this
   // process cannot see. That path is unverifiable, so it is off unless the
   // owner switched it on knowingly (settings.agentsAllowInteractive).
-  if (process.env.CLAUDECODE || process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) {
+  if (env.CLAUDECODE || env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) {
     let allow = false;
-    try { allow = JSON.parse(readFileSync(SETTINGS, 'utf8')).agentsAllowInteractive === true; } catch { /* off */ }
+    try { allow = JSON.parse(readFileSync(settingsPath, 'utf8')).agentsAllowInteractive === true; } catch { /* off */ }
     if (!allow) {
       console.error('ריצה מתוך סשן Claude Code פתוח: אי אפשר לאמת מכאן על איזה ספק הסשן עצמו רץ. המסלול הנאכף הוא npm run review / npm run classify מהטרמינל. כדי להתיר בכל זאת: config/settings.json → agentsAllowInteractive = true.');
       return false;

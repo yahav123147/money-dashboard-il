@@ -14,9 +14,12 @@ export function loadRules(path = RULES_PATH) {
 
 // Rules a person approved in /classify live in SQLite (classify_rules), so
 // approving and re-classifying are two writes to the same database and
-// serialise under its write lock. They go FIRST: first match wins.
+// serialise under its write lock. They go FIRST, newest decision first
+// (priority is monotonic; an upsert re-promotes): first match wins, so the
+// latest explicit decision always beats an older, broader one.
+// Fails closed: if the table cannot be read, nothing is reclassified.
 export function explicitRules(db) {
-  try { return db.prepare('SELECT side, match, bucket, bucket_group FROM classify_rules').all(); } catch { return []; }
+  return db.prepare('SELECT side, match, bucket, bucket_group, priority FROM classify_rules ORDER BY priority DESC, rowid DESC').all();
 }
 export function withExplicit(db, rules) {
   const ex = explicitRules(db);
