@@ -884,3 +884,23 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
   .sw { gap: 4px; }
   .sw-amt { font-size: 0.62rem; }
 }
+
+/* cashflow: one block per day, items stacked with their own amounts */
+.cash-day { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.cash-day:last-child { border-bottom: none; }
+.cash-day-head { display: flex; align-items: baseline; gap: 12px; font-size: 0.84rem; margin-bottom: 4px; }
+.cash-day-head .d { color: var(--ink); font-weight: 500; flex: 1; }
+.cash-day-head .a { direction: ltr; }
+.cash-day-head .p { color: var(--ink-3); font-size: 0.76rem; direction: ltr; min-width: 110px; text-align: left; }
+.cash-item { display: flex; justify-content: space-between; gap: 12px; font-size: 0.8rem; padding: 2px 0; }
+.cash-item::after { content: ''; min-width: 110px; }
+.cash-item .n { color: var(--ink-2); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cash-item .a { direction: ltr; color: var(--ink-3); }
+.cash-item .a.neg { color: var(--neg); opacity: 0.85; }
+.cash-item .a.pos { color: var(--pos); }
+.cash-tag { font-size: 0.62rem; color: var(--ink-3); border: 1px solid var(--line); border-radius: 100px; padding: 0 6px; margin-inline-start: 6px; vertical-align: middle; }
+.cash-more { font-size: 0.72rem; color: var(--ink-3); padding: 2px 0 0; }
+.cash-day-head .a, .cash-item .a { min-width: 84px; text-align: left; }
+/* grids must never let a long string widen one column at the others' expense */
+.grid-2 > div, .grid-3 > div, .grid-3 .g3-cell, .grid-hero > * { min-width: 0; }
+.panel { min-width: 0; }

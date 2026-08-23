@@ -80,16 +80,31 @@ export default function Cashflow({ cashflow: initial }) {
       ) : null}
 
       <div className="cash-list">
-        {eventDays.slice(0, horizon === 30 ? 7 : 12).map((d) => (
-          <div className="cash-row" key={d.date}>
-            <span className="d">{hebDay(d.date)}</span>
-            <span className="n" title={d.items.map((i) => i.name).join(' · ')}>
-              {d.items.map((i) => i.name).join(' · ')}
-            </span>
-            <span className={`a${Number(d.net) < 0 ? ' neg' : ' pos'}`}>{fmtIls(d.net)}</span>
-            <span className="p">{fmtIls(d.projected)}</span>
-          </div>
-        ))}
+        {eventDays.slice(0, horizon === 30 ? 7 : 12).map((d) => {
+          const items = [...d.items].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+          const shown = items.slice(0, 4);
+          const rest = items.length - shown.length;
+          return (
+            <div className="cash-day" key={d.date}>
+              <div className="cash-day-head">
+                <span className="d">{hebDay(d.date)}</span>
+                <span className={`a num${Number(d.net) < 0 ? ' neg' : ' pos'}`}>{fmtIls(d.net)}</span>
+                <span className="p num">יתרה {fmtIls(d.projected)}</span>
+              </div>
+              {shown.map((it, i) => (
+                <div className="cash-item" key={`${it.name}-${i}`}>
+                  <span className="n" title={it.name}>
+                    {it.name}
+                    {it.learned ? <span className="cash-tag">נלמד</span> : null}
+                    {it.settlement ? <span className="cash-tag">סליקה</span> : null}
+                  </span>
+                  <span className={`a num${it.amount < 0 ? ' neg' : ' pos'}`}>{fmtIls(it.amount)}</span>
+                </div>
+              ))}
+              {rest > 0 ? <div className="cash-more">ועוד {rest} {rest === 1 ? 'פריט' : 'פריטים'} קטנים יותר</div> : null}
+            </div>
+          );
+        })}
       </div>
 
       {learned.length > 0 ? (
