@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import Setup from './Setup';
+import Ask from './Ask';
 
 // Page chrome shared by the two screens: masthead with the two tabs, the
 // first-run setup gate, and the footer.
@@ -48,6 +49,7 @@ export default function Shell({ tab, title, dash, children }) {
       </div>
       {children}
       <footer>מקומי בלבד · הנתונים לא יוצאים מהמחשב שלך</footer>
+      <Ask />
     </main>
   );
 }
