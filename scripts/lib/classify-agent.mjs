@@ -3,7 +3,7 @@
 // itself (Claude, through the user's subscription) only ever sees the
 // groups below and returns JSON; every write goes through applyProposal,
 // after a person approved it in the dashboard or in /classify.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRules } from './classify.mjs';
@@ -82,9 +82,10 @@ export function parseProposals(text, groups) {
   const out = [];
   for (const p of arr) {
     if (!p || typeof p !== 'object') continue;
-    const side = p.side === 'in' || p.side === 'out' ? p.side : null;
+    // side is part of the contract: the same name can be a client and a supplier
+    if (p.side !== 'in' && p.side !== 'out') continue;
     const name = String(p.counterparty || '').trim();
-    const g = byKey.get((side || 'out') + '|' + name) || byKey.get('in|' + name);
+    const g = byKey.get(p.side + '|' + name);
     if (!g) continue;
     const vocab = BANK_BUCKETS[g.side];
     if (typeof p.bucket !== 'string' || !Object.hasOwn(vocab, p.bucket)) continue;
@@ -123,12 +124,21 @@ export function applyProposal(db, { side, match, bucket, counterparty }, path = 
   // ahead of the broad built-in rules. `source: 'classify'` also tells the
   // refund heuristic to leave these rows alone.
   rules[key].unshift({ match: [m], bucket, group, source: 'classify' });
-  writeFileSync(path, JSON.stringify(rules, null, 2) + '\n');
-  const n = db.prepare(`
+  // One unit of work: the history update and the rule file together. If the
+  // file write throws, the transaction rolls the rows back; if the update
+  // throws, the file is never written.
+  const update = db.prepare(`
     UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now')
     WHERE account_type='CHECKING' AND currency='ILS' AND bucket_group='unclassified'
       AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
       AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
-  `).run(bucket, group, side, side, name).changes;
+  `);
+  const n = db.transaction(() => {
+    const changes = update.run(bucket, group, side, side, name).changes;
+    const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    writeFileSync(tmp, JSON.stringify(rules, null, 2) + '\n');
+    renameSync(tmp, path);
+    return changes;
+  })();
   return { rule: { match: [m], bucket, group }, reclassified: n };
 }

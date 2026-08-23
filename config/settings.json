@@ -27,5 +27,12 @@
   "advanceDueDay": 15,
   "_advanceDueDay": "היום בחודש שבו מקדמת מס ההכנסה יורדת בפועל. 15 לפי החוק; בהוראת קבע זה לרוב כמה ימים אחרי. בדוק בבנק.",
   "agentsSendDataToClaude": false,
-  "_agentsSendDataToClaude": "true = אישרת שהסוכנים (/review, /classify) שולחים תמצית של הנתונים (שמות מוטבים, סכומים, תאריכים, תיאורים) ל-Claude דרך מנוי Claude Code שלך. false = הסוכנים מסרבים לרוץ. npm run review -- --yes מאשר פעם אחת."
+  "_agentsSendDataToClaude": "true = אישרת שהסוכנים (/review, /classify) שולחים תמצית של הנתונים (שמות מוטבים, סכומים, תאריכים, תיאורים) ל-Claude דרך מנוי Claude Code שלך. false = הסוכנים מסרבים לרוץ. npm run review -- --yes מאשר פעם אחת.",
+  "agentsAllowedPlans": [
+    "max",
+    "pro",
+    "team",
+    "enterprise"
+  ],
+  "_agentsAllowedPlans": "אילו מנויי claude.ai מותרים להרצת הסוכנים. הסקריפט מסרב לכל חיבור אחר (מפתח API, Bedrock, Vertex, Foundry). [\"max\"] = רק Max."
 }

@@ -74,10 +74,12 @@ test('checkTaxDebitDays: VAT landing late is a warning, never a suggestion to mo
 
 test('checkFreshness: from the last successful sync, not the last transaction', () => {
   const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
-  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: '2026-08-10 04:00:00', bankHasRows: true, daysBetween }).length, 0, 'quiet account synced today is fresh');
-  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: null, bankHasRows: true, daysBetween })[0].key, 'bank_never_synced');
-  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: '2026-08-01 04:00:00', bankHasRows: true, daysBetween })[0].key, 'bank_stale');
-  assert.equal(Q.checkFreshness({ today: '2026-08-10', cardcomEnabled: true, cardcomLastSync: null, daysBetween })[0].key, 'cardcom_never_synced');
+  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: '2026-08-10 04:00:00', daysBetween }).length, 0, 'quiet account synced today is fresh');
+  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: null, daysBetween })[0].key, 'bank_never_synced', 'an empty db that never synced is not a clean account');
+  assert.equal(Q.checkFreshness({ today: '2026-08-10', bankLastSync: '2026-08-01 04:00:00', daysBetween })[0].key, 'bank_stale');
+  const cc = Q.checkFreshness({ today: '2026-08-10', bankLastSync: '2026-08-10 04:00:00', cardcomEnabled: true, cardcomLastSync: null, daysBetween });
+  assert.equal(cc[0].key, 'cardcom_never_synced'); assert.equal(cc[0].area, 'cashflow');
+  assert.equal(Q.summarizeQuality(cc).confidence, 'medium', 'missing settlement data is not a high-confidence forecast');
 });
 
 test('checkVatEstimate: paid ≈ computed → nothing; paid 3x computed → warn', () => {
@@ -122,4 +124,22 @@ test('computeQuality on a db: duplicate pending rows, stale bank, unclassified s
   assert.ok(keys.includes('bank_never_synced'), 'rows exist but no successful sync logged');
   assert.equal(q.confidence, 'low');
   assert.equal(q.findings[0].severity, 'fix', 'sorted fix first');
+});
+
+test('computeQuality on an empty db that never synced: never good/high', async (t) => {
+  const { computeQuality } = await import('../../lib/queries.js');
+  const db = tmpDb(t, 'test-quality-empty.db');
+  const q = computeQuality(db, '2026-08-10', { recurring: { items: [], ignore: [] } });
+  assert.equal(q.confidence, 'low');
+  assert.ok(q.findings.some((f) => f.key === 'bank_never_synced'));
+});
+
+test('computeQuality ignores financy_refresh: a refresh is not a sync', async (t) => {
+  const { computeQuality } = await import('../../lib/queries.js');
+  const db = tmpDb(t, 'test-quality-refresh.db');
+  db.prepare(`INSERT INTO sync_log (source, ts, ok, note) VALUES ('financy', '2026-07-20 04:00:00', 1, '')`).run();
+  db.prepare(`INSERT INTO sync_log (source, ts, ok, note) VALUES ('financy_refresh', '2026-08-10 04:00:00', 1, '')`).run();
+  db.prepare(`INSERT INTO sync_log (source, ts, ok, note) VALUES ('financy', '2026-08-10 04:01:00', 0, 'failed')`).run();
+  const q = computeQuality(db, '2026-08-10', { recurring: { items: [], ignore: [] } });
+  assert.ok(q.findings.some((f) => f.key === 'bank_stale'), 'last SUCCESSFUL full sync is 21 days old');
 });

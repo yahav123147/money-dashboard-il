@@ -196,19 +196,23 @@ export function checkFxRate({ hasUsd = false, usdToIls = null }) {
 // Sync freshness per source, from the last SUCCESSFUL sync, not from the
 // last transaction: a quiet account synced this morning is fresh; a source
 // that never synced is not.
-export function checkFreshness({ today, bankLastSync = null, bankHasRows = false, cardcomEnabled = false, cardcomLastSync = null, daysBetween }) {
+export function checkFreshness({ today, bankLastSync = null, cardcomEnabled = false, cardcomLastSync = null, daysBetween }) {
   const out = [];
   const age = (ts) => (ts ? daysBetween(ts.slice(0, 10), today) : null);
   const dm = (ts) => `${ts.slice(8, 10)}.${ts.slice(5, 7)}`;
-  if (bankHasRows && !bankLastSync) {
-    out.push({ key: 'bank_never_synced', severity: 'fix', area: 'general', title: 'הבנק מעולם לא סונכרן', text: 'יש תנועות במסד, אבל אין רישום של סנכרון מוצלח מהבנק. היתרה והתחזית עלולות להיות ישנות.', action: 'npm run sync' });
-  } else if (bankLastSync && age(bankLastSync) > 3) {
+  // No successful bank sync at all: whatever is on screen (including an
+  // empty account at zero) is not the business. Rows or no rows.
+  if (!bankLastSync) {
+    out.push({ key: 'bank_never_synced', severity: 'fix', area: 'general', title: 'הבנק מעולם לא סונכרן', text: 'אין רישום של סנכרון מוצלח מהבנק. היתרה, ההוצאות והתחזית לא משקפות את החשבון.', action: 'npm run sync' });
+  } else if (age(bankLastSync) > 3) {
     out.push({ key: 'bank_stale', severity: 'fix', area: 'general', title: 'נתוני הבנק לא עדכניים', text: `הסנכרון המוצלח האחרון מהבנק היה ב-${dm(bankLastSync)}. היתרה והתחזית מתבססות על נתונים ישנים.`, action: 'npm run sync' });
   }
+  // Settlement credits feed the forecast directly, so stale sales data is a
+  // cashflow problem, not only a sales one.
   if (cardcomEnabled && !cardcomLastSync) {
-    out.push({ key: 'cardcom_never_synced', severity: 'warn', area: 'sales', title: 'קארדקום מעולם לא סונכרן', text: 'החיבור לקארדקום מופעל, אבל עדיין לא רץ סנכרון מוצלח.', action: 'npm run sync:cardcom' });
+    out.push({ key: 'cardcom_never_synced', severity: 'warn', area: 'cashflow', title: 'קארדקום מעולם לא סונכרן', text: 'החיבור לקארדקום מופעל, אבל עדיין לא רץ סנכרון מוצלח. זיכויי הסליקה הצפויים חסרים בתחזית.', action: 'npm run sync:cardcom' });
   } else if (cardcomEnabled && cardcomLastSync && age(cardcomLastSync) > 2) {
-    out.push({ key: 'cardcom_stale', severity: 'warn', area: 'sales', title: 'מכירות הקארדקום לא סונכרנו', text: `הסנכרון האחרון מקארדקום היה ב-${dm(cardcomLastSync)}. מכירות מאז לא מופיעות.`, action: 'npm run sync:cardcom' });
+    out.push({ key: 'cardcom_stale', severity: 'warn', area: 'cashflow', title: 'מכירות הקארדקום לא סונכרנו', text: `הסנכרון האחרון מקארדקום היה ב-${dm(cardcomLastSync)}. מכירות מאז, והזיכויים הצפויים מהן, לא בתחזית.`, action: 'npm run sync:cardcom' });
   }
   return out;
 }

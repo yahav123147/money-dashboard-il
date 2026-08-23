@@ -6,7 +6,9 @@ export const dynamic = 'force-dynamic';
 
 const DIR = join(process.cwd(), 'data', 'classify');
 const FILE = join(DIR, 'proposals.json');
+const RUN = join(DIR, 'last-run.json');
 const load = () => (existsSync(FILE) ? JSON.parse(readFileSync(FILE, 'utf8')) : null);
+const lastRun = () => (existsSync(RUN) ? JSON.parse(readFileSync(RUN, 'utf8')) : null);
 
 // GET: the saved proposals + how much is still unclassified right now.
 export async function GET() {
@@ -14,7 +16,7 @@ export async function GET() {
     const db = getDb();
     const u = gatherUnclassified(db, { limit: 0 });
     const saved = load();
-    return Response.json({ ...(saved || { ok: false, empty: true, proposals: [] }), now: { groups: u.totalGroups, rows: u.totalRows, amount: u.totalAmount } });
+    return Response.json({ ...(saved || { ok: false, empty: true, proposals: [] }), lastRun: lastRun(), now: { groups: u.totalGroups, rows: u.totalRows, amount: u.totalAmount } });
   } catch (err) { return Response.json({ error: String(err?.message || err) }, { status: 500 }); }
 }
 
@@ -24,7 +26,8 @@ export async function POST(req) {
   let body; try { body = await req.json(); } catch { body = {}; }
   const saved = load();
   if (!saved || !Array.isArray(saved.proposals)) return Response.json({ error: 'אין הצעות; הרץ npm run classify' }, { status: 400 });
-  const p = saved.proposals.find((x) => x.counterparty === body.counterparty && (!body.side || x.side === body.side));
+  if (body.side !== 'in' && body.side !== 'out') return Response.json({ error: 'חסר כיוון (side)' }, { status: 400 });
+  const p = saved.proposals.find((x) => x.counterparty === body.counterparty && x.side === body.side);
   if (!p) return Response.json({ error: 'הצעה לא נמצאה' }, { status: 404 });
   try {
     if (body.action === 'approve') {

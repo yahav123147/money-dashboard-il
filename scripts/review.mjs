@@ -5,16 +5,24 @@
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureConsent, ensureSubscription, runClaude, writeJsonAtomic, INJECTION_NOTE } from './lib/agent-run.mjs';
+import { ensureConsent, ensureSubscription, runClaude, writeJsonAtomic, hasHeadings, INJECTION_NOTE } from './lib/agent-run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(ROOT);
 const OUT = join(ROOT, 'data', 'review');
 mkdirSync(OUT, { recursive: true });
 
+// Consent and subscription come first, also for --snapshot-only: the
+// snapshot is the financial data, whoever reads it next.
+if (!ensureConsent()) process.exit(2);
+if (!ensureSubscription()) process.exit(2);
+
 const q = await import('../lib/queries.js');
 const db = q.getDb();
 const today = q.israelToday();
+// Captured BEFORE the snapshot: a sync finishing while Claude runs must leave
+// this review marked as older than that sync.
+const lastSync = db.prepare(`SELECT MAX(ts) ts FROM sync_log WHERE ok=1`).get().ts;
 const safe = (fn) => { try { return fn(); } catch (e) { return { error: String(e?.message || e) }; } };
 
 const s = q.settings;
@@ -32,18 +40,12 @@ const snapshot = {
 writeFileSync(join(OUT, 'snapshot.json'), JSON.stringify(snapshot, null, 1));
 console.log(`snapshot: data/review/snapshot.json (${today})`);
 if (process.argv.includes('--snapshot-only')) process.exit(0);
-if (!ensureConsent()) process.exit(2);
-if (!ensureSubscription()) process.exit(2);
 
 const skill = readFileSync(join(ROOT, '.claude', 'skills', 'review', 'SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n/, '');
 const prompt = `${skill}\n\n${INJECTION_NOTE}\n\n## הנתונים\n\n\`\`\`json\n${JSON.stringify(snapshot)}\n\`\`\`\n\nכתוב את הסקירה עכשיו, בפורמט ארבע הכותרות בלבד.`;
 const res = runClaude(prompt);
 const HEADINGS = ['### השורה התחתונה', '### מה נראה לא נכון', '### מה לתקן', '### שאלות לבעל העסק'];
-const lastSync = db.prepare(`SELECT MAX(ts) ts FROM sync_log WHERE ok=1`).get().ts;
-if (res.ok) {
-  const missing = HEADINGS.filter((h) => !res.text.includes(h));
-  if (missing.length) res.error = `הסקירה חזרה בלי הכותרות: ${missing.join(', ')}`, res.ok = false;
-}
+if (res.ok && !hasHeadings(res.text, HEADINGS)) { res.ok = false; res.error = 'הסקירה חזרה בלי ארבע הכותרות, כל אחת בשורה משלה ובסדר הנכון'; }
 if (!res.ok) {
   writeJsonAtomic(join(OUT, 'latest.json'), { date: today, ts: new Date().toISOString(), ok: false, error: res.error, syncTs: lastSync });
   console.error('review failed:', res.error);

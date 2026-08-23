@@ -11,13 +11,19 @@ const CONF = { high: 'בטוח', medium: 'סביר', low: 'לא בטוח' };
 export default function Classify() {
   const [d, setD] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState(null);
   const load = useCallback(async () => {
-    try { const res = await fetch('/api/classify', { cache: 'no-store' }); const j = await res.json(); if (!j.error) setD(j); } catch { /* keep */ }
+    try { const res = await fetch('/api/classify', { cache: 'no-store' }); const j = await res.json(); if (res.ok) setD(j); else setErr(j.error || 'שגיאה בטעינה'); } catch { /* keep */ }
   }, []);
   useEffect(() => { load(); const t = setInterval(load, 5 * 60 * 1000); return () => clearInterval(t); }, [load]);
   const act = async (action, p) => {
-    setBusy(p.side + p.counterparty);
-    try { await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, counterparty: p.counterparty, side: p.side }) }); await load(); }
+    setBusy(p.side + p.counterparty); setErr(null);
+    try {
+      const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, counterparty: p.counterparty, side: p.side }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) setErr(`"${p.counterparty}": ${j.error || 'האישור נכשל'}`);
+      await load();
+    } catch (e) { setErr(`"${p.counterparty}": ${String(e?.message || e)}`); }
     finally { setBusy(null); }
   };
   const pending = (d?.proposals || []).filter((p) => p.status === 'pending');
@@ -29,6 +35,8 @@ export default function Classify() {
         <h2>סיווג</h2>
         <div className="side">{now ? <span className={`badge ${now.rows === 0 ? 'ok' : 'warn'}`}>{now.rows === 0 ? 'הכל מסווג' : `${now.rows} תנועות בלי קטגוריה · ${fmtIls(Math.abs(now.amount))}`}</span> : null}</div>
       </div>
+      {err ? <p className="review-empty cl-err">{err}</p> : null}
+      {d?.lastRun && !d.lastRun.ok ? <p className="review-empty cl-err">הריצה האחרונה של הסוכן ({new Date(d.lastRun.ts).toLocaleString('he-IL', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}) נכשלה: {d.lastRun.error}. ההצעות למטה הן מהריצה התקינה הקודמת.</p> : null}
       {!d ? <p className="brief-loading">טוען…</p> : now?.rows === 0 ? (
         <p className="q-clean">כל תנועות הבנק מסווגות. {done.length ? `${done.length} חוקים נכתבו מהצעות הסוכן.` : ''}</p>
       ) : pending.length === 0 ? (

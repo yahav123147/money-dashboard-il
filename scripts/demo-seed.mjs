@@ -221,6 +221,7 @@ function seedSales(db, today) {
     }
   }
   db.prepare(`INSERT INTO sync_log (source, ts, ok, note) VALUES ('cardcom', datetime('now'), 1, 'demo seed')`).run();
+  db.prepare(`INSERT INTO sync_log (source, ts, ok, note) VALUES ('financy', datetime('now'), 1, 'demo seed')`).run();
 
   // Matching bank credits: each sales day lands the next day net of a 1.2% fee,
   // except one day (7 days back) that "never arrived" — so the reconciliation

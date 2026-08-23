@@ -938,3 +938,5 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 .cl-reason { font-size: 0.8rem; color: var(--ink-2); font-weight: 300; }
 .cl-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .cl-rule { font-size: 0.72rem; color: var(--ink-3); margin-inline-start: 6px; }
+
+.cl-err { color: var(--neg); margin-bottom: 10px; }

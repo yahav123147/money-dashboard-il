@@ -32,16 +32,17 @@ test('gatherUnclassified groups by counterparty, biggest first, with samples', (
   assert.equal(u.groups[1].count, 2); assert.equal(u.groups[1].side, 'out');
 });
 
-test('parseProposals keeps only vocabulary buckets, known counterparties and a match inside the name', () => {
+test('parseProposals requires side, keeps only vocabulary buckets, known counterparties and a match inside the name', () => {
   const groups = [{ counterparty: 'הוט מובייל בעמ', side: 'out', count: 2, total: -6000 }, { counterparty: 'לקוח א', side: 'in', count: 1, total: 5000 }];
   const text = 'הנה:\n```json\n' + JSON.stringify([
-    { counterparty: 'הוט מובייל בעמ', match: 'הוט מובייל', bucket: 'suppliers_other', confidence: 'high', reason: 'טלפון' },
-    { counterparty: 'הוט מובייל בעמ', match: 'סלקום', bucket: 'suppliers_other' },
-    { counterparty: 'לקוח א', match: 'לקוח א', bucket: 'suppliers_other' },
-    { counterparty: 'לקוח א', match: 'לקוח א', bucket: 'direct', confidence: 'weird' },
-    { counterparty: 'מי זה', match: 'מי', bucket: 'rent' },
-    { counterparty: 'הוט מובייל בעמ', match: 'הוט', bucket: '__proto__' },
-    { counterparty: 'הוט מובייל בעמ', match: 'הוט', bucket: 'toString' },
+    { counterparty: 'הוט מובייל בעמ', side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', confidence: 'high', reason: 'טלפון' },
+    { counterparty: 'הוט מובייל בעמ', side: 'out', match: 'סלקום', bucket: 'suppliers_other' },
+    { counterparty: 'לקוח א', side: 'in', match: 'לקוח א', bucket: 'suppliers_other' },
+    { counterparty: 'לקוח א', side: 'in', match: 'לקוח א', bucket: 'direct', confidence: 'weird' },
+    { counterparty: 'לקוח א', match: 'לקוח א', bucket: 'direct' },
+    { counterparty: 'מי זה', side: 'out', match: 'מי', bucket: 'rent' },
+    { counterparty: 'הוט מובייל בעמ', side: 'out', match: 'הוט', bucket: '__proto__' },
+    { counterparty: 'הוט מובייל בעמ', side: 'out', match: 'הוט', bucket: 'toString' },
   ]) + '\n```';
   const out = parseProposals(text, groups);
   assert.equal(out.length, 2);
@@ -99,4 +100,23 @@ test('applyProposal writes one rule to a rules file and reclassifies the rows', 
   assert.throws(() => applyProposal(db, { side: 'out', match: 'x', bucket: 'nope', counterparty: 'x' }, rulesPath));
   assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: '__proto__', counterparty: 'הוט מובייל בעמ' }, rulesPath), /קטגוריה/);
   assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: 'constructor', counterparty: 'הוט מובייל בעמ' }, rulesPath), /קטגוריה/);
+});
+
+test('parseProposals keeps both sides of the same name', () => {
+  const groups = [{ counterparty: 'דני', side: 'out', count: 1, total: -3000 }, { counterparty: 'דני', side: 'in', count: 1, total: 4000 }];
+  const out = parseProposals(JSON.stringify([
+    { counterparty: 'דני', side: 'out', match: 'דני', bucket: 'suppliers_other' },
+    { counterparty: 'דני', side: 'in', match: 'דני', bucket: 'direct' },
+  ]), groups);
+  assert.deepEqual(out.map((p) => p.side + ':' + p.bucket).sort(), ['in:direct', 'out:suppliers_other']);
+});
+
+test('applyProposal is one unit: a failed rule write leaves the rows unclassified', (t) => {
+  const db = tmpDb(t, 'test-cla5.db');
+  tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  const badPath = join(ROOT, 'data', 'no-such-dir', 'rules.json'); // rename into a missing dir throws
+  const dirAsFile = join(ROOT, 'data');
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, badPath));
+  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='a1'`).get().bucket_group, 'unclassified', 'rolled back');
+  void dirAsFile;
 });

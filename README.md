@@ -178,9 +178,10 @@ npm run review        # סקירה מלאה, נשמרת ל-data/review/ ומוצ
 ב-`config/settings.json → agentsSendDataToClaude`); בלי זה הסוכנים מסרבים לרוץ.
 
 **על המנוי בלבד.** הסוכנים רצים דרך `claude -p` על מנוי Claude Code שלך (מחובר עם
-`claude auth login --claudeai`), בלי כלים. לפני כל ריצה הסקריפט בודק
-`claude auth status` ומסרב לכל חיבור שאינו claude.ai (מפתח API, Bedrock, Vertex),
-ומוחק משתני API מהסביבה. ריצה מוגבלת ל-10 דקות, התוצאה נכתבת אטומית, ותשובה
+`claude auth login --claudeai`), בלי כלים. לפני כל ריצה, כולל `--snapshot-only`,
+הסקריפט בודק `claude auth status` ומסרב לכל חיבור שאינו claude.ai עם מנוי מהרשימה
+ב-`settings.json → agentsAllowedPlans` (מפתח API, Bedrock, Vertex, Foundry נדחים;
+`["max"]` מגביל ל-Max), ומסנן מהסביבה כל משתנה ספק/אישורים. ריצה מוגבלת ל-10 דקות, התוצאה נכתבת אטומית, ותשובה
 בלי ארבע הכותרות נדחית. הסוכן לעולם לא משנה קבצים בריצה האוטומטית; באינטראקטיב
 הוא מציע ומחכה ל"כן". שמות מוטבים מהבנק מסומנים לסוכן כנתונים, לא כהוראות.
 

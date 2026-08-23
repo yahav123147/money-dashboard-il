@@ -14,6 +14,9 @@ process.chdir(ROOT);
 const OUT = join(ROOT, 'data', 'classify');
 mkdirSync(OUT, { recursive: true });
 
+if (!ensureConsent()) process.exit(2);
+if (!ensureSubscription()) process.exit(2);
+
 const q = await import('../lib/queries.js');
 const db = q.getDb();
 const today = q.israelToday();
@@ -28,22 +31,18 @@ if (!u.groups.length) {
   console.log('אין מה לסווג'); process.exit(0);
 }
 
-if (!ensureConsent()) process.exit(2);
-if (!ensureSubscription()) process.exit(2);
 const skill = readFileSync(join(ROOT, '.claude', 'skills', 'classify', 'SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n/, '');
 const prompt = `${skill}\n\n${INJECTION_NOTE}\n\n## הנתונים\n\n\`\`\`json\n${JSON.stringify(snapshot)}\n\`\`\`\n\nהחזר עכשיו רק את בלוק ה-JSON.`;
 const res = runClaude(prompt);
-if (!res.ok) {
-  writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: false, error: res.error });
-  console.error('classify failed:', res.error);
+const fail = (error) => {
+  // proposals.json keeps the last good run; the failure is recorded beside it
+  writeJsonAtomic(join(OUT, 'last-run.json'), { date: today, ts: new Date().toISOString(), ok: false, error });
+  console.error('classify failed:', error);
   process.exit(1);
-}
+};
+if (!res.ok) fail(res.error);
 const fresh = parseProposals(res.text, u.groups);
-if (!fresh.length) {
-  writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: false, error: 'Claude לא החזיר הצעות תקינות (בלוק JSON עם קטגוריות מהמילון)' });
-  console.error('classify: no valid proposals in the answer');
-  process.exit(1);
-}
+if (!fresh.length) fail('Claude לא החזיר הצעות תקינות (בלוק JSON עם קטגוריות מהמילון)');
 // Keep earlier decisions (approved / rejected) for counterparties still present.
 let prev = [];
 try { prev = JSON.parse(readFileSync(join(OUT, 'proposals.json'), 'utf8')).proposals || []; } catch { /* first run */ }
@@ -51,4 +50,5 @@ const k = (p) => p.side + '|' + p.counterparty;
 const decided = new Map(prev.filter((p) => p.status !== 'pending').map((p) => [k(p), p]));
 const proposals = fresh.map((p) => decided.get(k(p)) || p);
 writeJsonAtomic(join(OUT, 'proposals.json'), { date: today, ts: new Date().toISOString(), ok: true, proposals, totalGroups: u.totalGroups, totalRows: u.totalRows, totalAmount: u.totalAmount });
+writeJsonAtomic(join(OUT, 'last-run.json'), { date: today, ts: new Date().toISOString(), ok: true, count: proposals.length });
 console.log(`proposals saved: ${proposals.length} (data/classify/proposals.json)`);
