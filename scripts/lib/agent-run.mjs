@@ -90,7 +90,10 @@ export function ensureSubscription() {
     console.error(`הסוכנים רצים רק על מנוי Claude (${allowed.join('/')}). החיבור הנוכחי: authMethod=${st.authMethod || '?'}, apiProvider=${st.apiProvider || '?'}, plan=${plan || '?'}. התחבר עם: ${LOGIN_CMD}`);
     return false;
   }
+  // The environment this preflight inherited is the environment of whoever
+  // will read the snapshot next (an interactive Claude Code session included).
   const overrides = findProviderOverrides();
+  for (const k of Object.keys(process.env)) if (FORBIDDEN_ENV.test(k)) overrides.push(`env: ${k}`);
   if (overrides.length) {
     console.error(`הגדרות Claude Code מפנות לספק או למפתח שאינם המנוי, והסוכנים מסרבים לרוץ:\n  ${overrides.join('\n  ')}`);
     return false;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb, upsertTx } from '../lib/db.mjs';
@@ -112,13 +112,16 @@ test('parseProposals keeps both sides of the same name', () => {
   assert.deepEqual(out.map((p) => p.side + ':' + p.bucket).sort(), ['in:direct', 'out:suppliers_other']);
 });
 
-test('applyProposal is one unit: a failed rule write leaves the rows unclassified', (t) => {
+test('applyProposal is one unit: a failed rule write leaves the rows unclassified, and only those rows', (t) => {
   const db = tmpDb(t, 'test-cla5.db');
   tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
+  tx(db, 'old', '2026-06-01', -2900, 'הוט מובייל בעמ', 'suppliers_other', 'expense'); // classified earlier: a revert must not touch it
   const badPath = join(ROOT, 'data', 'no-such-dir', 'rules.json'); // rename into a missing dir throws
   const dirAsFile = join(ROOT, 'data');
   assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, badPath));
   assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='a1'`).get().bucket_group, 'unclassified', 'rolled back');
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='old'`).get().bucket, 'suppliers_other', 'earlier classification untouched by the revert');
+  assert.equal(existsSync(join(ROOT, 'data', 'no-such-dir')), false);
   void dirAsFile;
 });
 
@@ -141,9 +144,12 @@ test('two approvals from two processes both land in rules.json (write lock seria
   `;
   const { spawn } = await import('node:child_process');
   const run = (code) => new Promise((res) => { const p = spawn(process.execPath, ['--input-type=module', '-e', code], { stdio: ['ignore', 'ignore', 'pipe'] }); let err = ''; p.stderr.on('data', (d) => { err += d; }); p.on('exit', (c) => res({ c, err })); });
-  const [r1, r2] = await Promise.all([run(worker('ספק א', 'ספק א')), run(worker('ספק ב', 'ספק ב'))]);
-  assert.equal(r1.c, 0, r1.err); assert.equal(r2.c, 0, r2.err);
-  const rules = JSON.parse(readFileSync(rulesPath, 'utf8'));
-  assert.equal(rules.outflows.length, 10, 'no lost update: all ten rules present');
+  for (let round = 0; round < 3; round++) {
+    const [r1, r2] = await Promise.all([run(worker('ספק א', `ספק א ${round} `)), run(worker('ספק ב', `ספק ב ${round} `))]);
+    assert.equal(r1.c, 0, r1.err); assert.equal(r2.c, 0, r2.err);
+    const rules = JSON.parse(readFileSync(rulesPath, 'utf8'));
+    assert.equal(rules.outflows.length, 10 * (round + 1), `round ${round}: no lost update`);
+  }
+  assert.equal(existsSync(rulesPath + '.lock'), false, 'lock released');
   void spawnSync;
 });

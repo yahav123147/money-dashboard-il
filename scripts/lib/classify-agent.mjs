@@ -3,7 +3,7 @@
 // itself (Claude, through the user's subscription) only ever sees the
 // groups below and returns JSON; every write goes through applyProposal,
 // after a person approved it in the dashboard or in /classify.
-import { readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, rmSync, openSync, writeSync, closeSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRules } from './classify.mjs';
@@ -119,41 +119,58 @@ export function applyProposal(db, { side, match, bucket, counterparty }, path = 
   if (m.length < 2) throw new Error('טקסט התאמה קצר מדי');
   const key = side === 'in' ? 'inflows' : 'outflows';
   const rule = { match: [m], bucket, group, source: 'classify' };
-  const update = db.prepare(`
-    UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now')
-    WHERE account_type='CHECKING' AND currency='ILS' AND bucket_group='unclassified'
-      AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
-      AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
-  `);
-  const revert = db.prepare(`
-    UPDATE bank_transactions SET bucket='unclassified', bucket_group='unclassified', updated_at=datetime('now')
-    WHERE account_type='CHECKING' AND currency='ILS' AND bucket=? AND bucket_group=?
-      AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
-      AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
-  `);
-  // BEGIN IMMEDIATE takes the database write lock for the whole
-  // read-modify-write of rules.json too, so two approvals in parallel (two
-  // browser tabs, the API and /classify) serialise instead of one silently
-  // overwriting the other's rule. The rules file is read INSIDE the lock.
+
+  // One exclusive file lock around the whole read → update → publish, across
+  // processes (the API, /classify, a script). The SQLite write lock alone is
+  // not enough: it is released at COMMIT, before the rename publishes the
+  // file, and a second writer reading rules.json in that gap loses the rule.
+  const release = acquireLock(path + '.lock');
   const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  const tx = db.transaction(() => {
+  try {
     const rules = JSON.parse(readFileSync(path, 'utf8'));
     rules[key] = Array.isArray(rules[key]) ? rules[key] : [];
     rules[key] = rules[key].filter((r) => !(r.source === 'classify' && Array.isArray(r.match) && r.match.length === 1 && r.match[0] === m));
-    // First match wins in the engine, so an explicit decision goes to the front.
-    rules[key].unshift(rule);
-    const changes = update.run(bucket, group, side, side, name).changes;
-    writeFileSync(tmp, JSON.stringify(rules, null, 2) + '\n'); // staged, not yet visible
-    return changes;
-  });
-  let n;
-  try { n = tx.immediate(); } catch (e) { rmSync(tmp, { force: true }); throw e; }
-  // Rows are committed. Publish the rule; if that fails, put the rows back
-  // so the two never disagree.
-  try { renameSync(tmp, path); } catch (e) {
+    rules[key].unshift(rule); // first match wins in the engine
+    // Exactly the rows this decision touches, by id, so a revert can never
+    // reach a row classified earlier by someone else.
+    const ids = db.prepare(`
+      SELECT id FROM bank_transactions
+      WHERE account_type='CHECKING' AND currency='ILS' AND bucket_group='unclassified'
+        AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
+        AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
+    `).all(side, side, name).map((r) => r.id);
+    const idList = JSON.stringify(ids);
+    db.transaction(() => {
+      db.prepare(`UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now') WHERE id IN (SELECT value FROM json_each(?))`).run(bucket, group, idList);
+    }).immediate();
+    writeFileSync(tmp, JSON.stringify(rules, null, 2) + '\n');
+    try { renameSync(tmp, path); } catch (e) {
+      rmSync(tmp, { force: true });
+      db.prepare(`UPDATE bank_transactions SET bucket='unclassified', bucket_group='unclassified', updated_at=datetime('now') WHERE id IN (SELECT value FROM json_each(?))`).run(idList);
+      throw new Error(`החוק לא נשמר (${e.message}); הסיווג בוטל`);
+    }
+    return { rule: { match: [m], bucket, group }, reclassified: ids.length };
+  } finally {
     rmSync(tmp, { force: true });
-    revert.run(bucket, group, side, side, name);
-    throw new Error(`החוק לא נשמר (${e.message}); הסיווג בוטל`);
+    release();
   }
-  return { rule: { match: [m], bucket, group }, reclassified: n };
+}
+
+// Exclusive advisory lock via O_EXCL create. Waits up to `waitMs`; a lock
+// older than `staleMs` (a crashed holder) is taken over.
+export function acquireLock(lockPath, { waitMs = 30000, staleMs = 60000 } = {}) {
+  const start = Date.now();
+  for (;;) {
+    try {
+      const fd = openSync(lockPath, 'wx');
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
+      return () => rmSync(lockPath, { force: true });
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      try { if (Date.now() - statSync(lockPath).mtimeMs > staleMs) { rmSync(lockPath, { force: true }); continue; } } catch { continue; }
+      if (Date.now() - start > waitMs) throw new Error('קובץ החוקים נעול על ידי תהליך אחר; לנסות שוב');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); // sleep 25ms, synchronously
+    }
+  }
 }
