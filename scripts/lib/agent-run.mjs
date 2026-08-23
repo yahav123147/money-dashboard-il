@@ -142,7 +142,8 @@ export function runClaude(prompt, { timeoutMs = 10 * 60 * 1000, model = process.
   }
   // No user/project/local settings: nothing can re-inject a provider after
   // the env strip. Managed settings were inspected in ensureSubscription.
-  const args = ['-p', '--tools', '', '--no-session-persistence', '--setting-sources', '', '--output-format', 'text'];
+  // No built-in tools, no MCP servers (the user's ~/.claude.json is ignored), no user/project settings.
+  const args = ['-p', '--tools', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence', '--setting-sources', '', '--output-format', 'text'];
   if (model) args.push('--model', model);
   const res = spawnSync('claude', args, { input: prompt, encoding: 'utf8', env, maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs });
   if (res.error) return { ok: false, error: res.error.code === 'ETIMEDOUT' ? `הריצה עברה ${Math.round(timeoutMs / 60000)} דקות ונעצרה` : String(res.error.message) };
