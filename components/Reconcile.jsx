@@ -7,10 +7,10 @@ import { fmtIls, hebDay, EmptyState } from './format';
 // the CardCom module is off. The question this panel answers is "did the
 // money I cleared actually land?", so missing rows come first.
 const STATUS = {
-  missing: { label: 'לא נחת', cls: 'rc-miss' },
-  partial: { label: 'פער', cls: 'rc-part' },
-  pending: { label: 'ממתין', cls: 'rc-pend' },
-  matched: { label: 'נחת', cls: 'rc-ok' },
+  missing: { label: 'חסר בבנק', cls: 'rc-miss' },
+  partial: { label: 'סכום שונה', cls: 'rc-part' },
+  pending: { label: 'בדרך', cls: 'rc-pend' },
+  matched: { label: 'הגיע', cls: 'rc-ok' },
 };
 const ORDER = { missing: 0, partial: 1, pending: 2, matched: 3 };
 
@@ -40,9 +40,23 @@ export default function Reconcile() {
   const fmtLabel = (row) => (data.mode === 'monthly' ? row.label : hebDay(row.label));
 
   let headline;
-  if (s.missing > 0) headline = <span className="rc-miss">{fmtIls(s.missingAmount)} לא נחתו</span>;
-  else if (s.partial > 0) headline = <span className="rc-part">פער של {fmtIls(Math.abs(s.diffAmount))}</span>;
-  else headline = <span className="rc-ok">הכל נחת</span>;
+  let sub;
+  if (s.missing > 0) {
+    headline = <span className="rc-miss">{fmtIls(s.missingAmount)} חסרים בבנק</span>;
+    sub = `כסף שנסלק בקארדקום ולא הגיע לחשבון הבנק בזמן (${s.missing} ${s.missing === 1 ? 'יום מכירות' : 'ימי מכירות'})`;
+  } else if (s.partial > 0) {
+    headline = <span className="rc-part">פער של {fmtIls(Math.abs(s.diffAmount))}</span>;
+    sub = `הזיכוי הגיע לבנק, אבל בסכום שונה מהצפוי (${s.partial} ${s.partial === 1 ? 'יום' : 'ימים'})`;
+  } else {
+    headline = <span className="rc-ok">הכל הגיע לבנק</span>;
+    sub = 'כל מה שנסלק בקארדקום נמצא בחשבון הבנק';
+  }
+  const counts = [
+    s.matched ? `${s.matched} הגיעו` : null,
+    s.pending ? `${s.pending} בדרך` : null,
+    s.partial ? `${s.partial} עם פער` : null,
+    s.missing ? `${s.missing} חסרים` : null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <section className="panel">
@@ -51,9 +65,8 @@ export default function Reconcile() {
         <div className="side"><span className="badge">{data.days} יום</span></div>
       </div>
       <div className="hero-secondary">{headline}</div>
-      <div className="hero-sub">
-        {s.matched || 0} נחתו · {s.pending || 0} ממתינים{s.partial ? ` · ${s.partial} עם פער` : ''}{s.missing ? ` · ${s.missing} לא נחתו` : ''}
-      </div>
+      <div className="hero-sub">{sub}</div>
+      <div className="su-hint" style={{ marginTop: 6 }}>{counts}. הבדיקה: לכל יום מכירות, האם נכנס לבנק זיכוי סליקה בסכום המתאים תוך {data.windowDays ?? 'כמה'} ימים.</div>
 
       {rows.length === 0 ? <EmptyState text="אין מכירות בתקופה" /> : (
         <div style={{ marginTop: 14 }}>
@@ -61,17 +74,19 @@ export default function Reconcile() {
           {shown.map((row) => {
             const st = STATUS[row.status] || STATUS.pending;
             return (
-              <div className="kv" key={row.key} title={row.credits.map((c) => `${c.date} ${c.desc} ${c.amount}`).join('\n')}>
-                <span className="k">
-                  <span className={`rc-dot ${st.cls}`} /> {fmtLabel(row)}
-                  {' '}<span style={{ opacity: 0.55 }}>צפוי {fmtIls(row.expected)}</span>
-                </span>
-                <span className={`v num ${st.cls}`}>
-                  {row.status === 'matched' ? st.label
-                    : row.status === 'pending' ? `${st.label} עד ${hebDay(row.windowTo)}`
-                    : row.status === 'partial' ? `${row.diff > 0 ? '+' : ''}${fmtIls(row.diff)}`
-                    : st.label}
-                </span>
+              <div className="kv" key={row.key} title={row.credits.map((c) => `${c.date} ${c.desc} ${c.amount}`).join('\n')} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <span className="k">
+                    <span className={`rc-dot ${st.cls}`} /> {data.mode === 'monthly' ? 'מכירות חודש' : 'מכירות'} {fmtLabel(row)}: נסלקו {fmtIls(row.gross)}
+                  </span>
+                  <span className={`v num ${st.cls}`}>{st.label}</span>
+                </div>
+                <div className="su-hint" style={{ margin: 0 }}>
+                  {row.status === 'matched' ? `נכנסו לבנק ${fmtIls(row.received)} ב${hebDay(row.credits[0]?.date)}`
+                    : row.status === 'pending' ? `צפוי להיכנס לבנק ${fmtIls(row.expected)} עד ${hebDay(row.windowTo)}`
+                    : row.status === 'partial' ? `צפוי ${fmtIls(row.expected)}, נכנסו ${fmtIls(row.received)} (${row.diff > 0 ? '+' : ''}${fmtIls(row.diff)})`
+                    : `צפוי ${fmtIls(row.expected)} עד ${hebDay(row.windowTo)}, לא נמצא זיכוי בבנק. לבדוק מול חברת הסליקה`}
+                </div>
               </div>
             );
           })}
@@ -82,7 +97,7 @@ export default function Reconcile() {
           ) : null}
           {Array.isArray(data.unmatchedCredits) && data.unmatchedCredits.length > 0 ? (
             <div className="su-hint" style={{ marginTop: 10 }}>
-              זיכויי סליקה בבנק שלא שויכו למכירות: {data.unmatchedCredits.slice(0, 3).map((c) => `${hebDay(c.date)} ${fmtIls(c.amount)}`).join(' · ')}
+              נכנסו לבנק זיכויי סליקה שלא מתאימים לאף יום מכירות: {data.unmatchedCredits.slice(0, 3).map((c) => `${hebDay(c.date)} ${fmtIls(c.amount)}`).join(' · ')}
               {data.unmatchedCredits.length > 3 ? ` ועוד ${data.unmatchedCredits.length - 3}` : ''}
             </div>
           ) : null}
