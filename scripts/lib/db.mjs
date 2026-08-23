@@ -2,9 +2,30 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DB_PATH = process.env.MONEY_DB_PATH || join(ROOT, 'data', 'money.db');
+
+const WAL_WAIT = new Int32Array(new SharedArrayBuffer(4));
+function ensureWal(db) {
+  let lastError;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      const current = String(db.pragma('journal_mode', { simple: true })).toLowerCase();
+      if (current === 'wal') return;
+      const mode = String(db.pragma('journal_mode = WAL', { simple: true })).toLowerCase();
+      if (mode !== 'wal') throw new Error(`SQLite refused WAL mode (got ${mode || 'empty'})`);
+      return;
+    } catch (error) {
+      const code = String(error?.code || '');
+      if (!code.startsWith('SQLITE_BUSY') && !code.startsWith('SQLITE_LOCKED')) throw error;
+      lastError = error;
+      if (attempt < 99) Atomics.wait(WAL_WAIT, 0, 0, 25);
+    }
+  }
+  throw lastError;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS bank_transactions (
@@ -31,11 +52,13 @@ CREATE TABLE IF NOT EXISTS cardcom_sales (
 CREATE INDEX IF NOT EXISTS idx_cc_date ON cardcom_sales(date);
 CREATE TABLE IF NOT EXISTS classify_rules (
   side TEXT NOT NULL, match TEXT NOT NULL, bucket TEXT NOT NULL, bucket_group TEXT NOT NULL,
-  counterparty TEXT, created_at TEXT, priority INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (side, match));
+  counterparty TEXT, created_at TEXT, priority INTEGER NOT NULL DEFAULT 0,
+  rule_version TEXT NOT NULL DEFAULT 'legacy-rule-1', PRIMARY KEY (side, match));
 CREATE TABLE IF NOT EXISTS classify_proposals (
   side TEXT NOT NULL, counterparty TEXT NOT NULL, match TEXT, bucket TEXT, bucket_group TEXT, label TEXT,
   reason TEXT, confidence TEXT, count INTEGER, total REAL, status TEXT NOT NULL DEFAULT 'pending',
-  proposed_at TEXT, decided_at TEXT, reclassified INTEGER, PRIMARY KEY (side, counterparty));
+  proposed_at TEXT, decided_at TEXT, reclassified INTEGER,
+  proposal_version TEXT NOT NULL DEFAULT 'legacy-1', PRIMARY KEY (side, counterparty));
 CREATE TABLE IF NOT EXISTS agent_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, agent TEXT, ts TEXT, ok INTEGER, error TEXT, count INTEGER, note TEXT);
 `;
@@ -43,32 +66,48 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 export function openDb(path = DB_PATH) {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
-  db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000'); // two writers (API + a script) wait instead of failing
-  db.exec(SCHEMA);
-  const txCols = db.prepare('PRAGMA table_info(bank_transactions)').all().map((c) => c.name);
-  if (!txCols.includes('sub_bucket')) {
-    db.exec('ALTER TABLE bank_transactions ADD COLUMN sub_bucket TEXT');
-  }
-  if (!txCols.includes('expense_channel')) {
-    db.exec('ALTER TABLE bank_transactions ADD COLUMN expense_channel TEXT');
-  }
-  const crCols = db.prepare('PRAGMA table_info(classify_rules)').all().map((c) => c.name);
-  if (!crCols.includes('priority')) {
-    // One transaction: the column and its backfill land together. Existing
-    // rules are ordered by when they were last approved, so a re-approval
-    // made before the upgrade still beats the older decision.
-    db.exec(`BEGIN IMMEDIATE;
-      ALTER TABLE classify_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
-      UPDATE classify_rules SET priority = (
+  ensureWal(db);
+  // Every schema check and ALTER is protected by one write lock. This is
+  // deliberately run on ordinary opens too: it makes a cold upgrade safe when
+  // the API, sync and an agent all start at the same time.
+  db.transaction(() => {
+    db.exec(SCHEMA);
+    const columns = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+
+    const txCols = new Set(columns('bank_transactions'));
+    for (const [col, type] of [['sub_bucket', 'TEXT'], ['expense_channel', 'TEXT']]) {
+      if (!txCols.has(col)) db.exec(`ALTER TABLE bank_transactions ADD COLUMN ${col} ${type}`);
+    }
+
+    const ruleCols = new Set(columns('classify_rules'));
+    if (!ruleCols.has('priority')) {
+      // Existing rules keep their last-approval order after the upgrade.
+      db.exec('ALTER TABLE classify_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0');
+      db.exec(`UPDATE classify_rules SET priority = (
         SELECT COUNT(*) FROM classify_rules c2
-        WHERE c2.created_at < classify_rules.created_at OR (c2.created_at = classify_rules.created_at AND c2.rowid < classify_rules.rowid)) + 1;
-      COMMIT;`);
-  }
-  const ccCols = db.prepare('PRAGMA table_info(cardcom_sales)').all().map((c) => c.name);
-  for (const [col, type] of [['acquirer', 'TEXT'], ['payments', 'INTEGER'], ['first_payment', 'REAL'], ['const_payment', 'REAL']]) {
-    if (!ccCols.includes(col)) db.exec(`ALTER TABLE cardcom_sales ADD COLUMN ${col} ${type}`);
-  }
+        WHERE c2.created_at < classify_rules.created_at
+           OR (c2.created_at = classify_rules.created_at AND c2.rowid < classify_rules.rowid)) + 1`);
+    }
+    if (!ruleCols.has('rule_version')) {
+      db.exec("ALTER TABLE classify_rules ADD COLUMN rule_version TEXT NOT NULL DEFAULT 'legacy-rule-1'");
+    }
+    const assignRuleVersion = db.prepare('UPDATE classify_rules SET rule_version=? WHERE side=? AND match=?');
+    for (const rule of db.prepare("SELECT side, match FROM classify_rules WHERE rule_version IS NULL OR rule_version='legacy-rule-1'").all()) {
+      assignRuleVersion.run(randomUUID(), rule.side, rule.match);
+    }
+    if (!columns('classify_proposals').includes('proposal_version')) {
+      db.exec("ALTER TABLE classify_proposals ADD COLUMN proposal_version TEXT NOT NULL DEFAULT 'legacy-1'");
+    }
+
+    const ccCols = new Set(columns('cardcom_sales'));
+    for (const [col, type] of [
+      ['product_source', 'TEXT'], ['updated_at', 'TEXT'], ['acquirer', 'TEXT'],
+      ['payments', 'INTEGER'], ['first_payment', 'REAL'], ['const_payment', 'REAL'],
+    ]) {
+      if (!ccCols.has(col)) db.exec(`ALTER TABLE cardcom_sales ADD COLUMN ${col} ${type}`);
+    }
+  }).immediate();
   return db;
 }
 

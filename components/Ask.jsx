@@ -48,7 +48,7 @@ export default function Ask() {
         <div className="ask-head">
           <div>
             <div className="ask-title">שאל את הנתונים</div>
-            <div className="ask-note">רץ על מנוי Claude שלך · כל שאלה כ-10 שניות</div>
+            <div className="ask-note">אחרי בדיקת מנוי · קריאה אחת או שתיים · עד 3 דקות לקריאה</div>
           </div>
           {msgs.length ? <button type="button" className="linkish" onClick={() => setMsgs([])} disabled={busy}>שיחה חדשה</button> : null}
         </div>

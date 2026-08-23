@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gatherUnclassified, ruleExamples, parseProposals, saveProposals, logAgentRun, importLegacyProposals, BANK_BUCKETS } from './lib/classify-agent.mjs';
+import { gatherUnclassified, ruleExamples, parseProposals, saveProposals, logAgentRun, importLegacyProposals, reconcileProposals, BANK_BUCKETS } from './lib/classify-agent.mjs';
 import { preflight, runClaude, writeJsonAtomic, INJECTION_NOTE } from './lib/agent-run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,6 +21,7 @@ const db = q.getDb();
 const today = q.israelToday();
 const legacy = importLegacyProposals(db, join(OUT, 'proposals.json'));
 if (legacy) console.log(`יובאו ${legacy} החלטות ישנות מ-proposals.json`);
+reconcileProposals(db); // also repairs upgrades whose legacy file was already renamed
 const u = gatherUnclassified(db);
 const vocabulary = Object.fromEntries(Object.entries(BANK_BUCKETS).map(([side, v]) => [side, Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x.label]))]));
 const snapshot = { date: today, entityType: q.settings.entityType ?? null, groups: u.groups, totalGroups: u.totalGroups, totalRows: u.totalRows, totalAmount: u.totalAmount, vocabulary, examples: ruleExamples(db) };

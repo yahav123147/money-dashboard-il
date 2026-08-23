@@ -19,7 +19,7 @@ export default function Classify() {
   const act = async (action, p) => {
     setBusy(p.side + p.counterparty); setErr(null);
     try {
-      const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, counterparty: p.counterparty, side: p.side }) });
+      const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, counterparty: p.counterparty, side: p.side, expectedMatch: p.match, expectedBucket: p.bucket, expectedVersion: p.version }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.ok) setErr(`"${p.counterparty}": ${j.error || 'האישור נכשל'}`);
       else if (j.warning) setErr(j.warning);
@@ -30,7 +30,7 @@ export default function Classify() {
   const undo = async (r) => {
     setBusy('rule' + r.side + r.match); setErr(null);
     try {
-      const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'undo', side: r.side, match: r.match }) });
+      const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'undo', side: r.side, match: r.match, expectedRuleVersion: r.version }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.ok) setErr(`ביטול "${r.match}": ${j.error || 'נכשל'}`);
       await load();
@@ -44,13 +44,12 @@ export default function Classify() {
   const approveWith = async (p, bucket) => {
     setBusy(p.side + p.counterparty); setErr(null);
     try {
-      const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', counterparty: p.counterparty, side: p.side, bucket }) });
+      const res = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve', counterparty: p.counterparty, side: p.side, bucket, expectedMatch: p.match, expectedBucket: p.bucket, expectedVersion: p.version }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.ok) setErr(`"${p.counterparty}": ${j.error || 'האישור נכשל'}`);
       await load();
     } finally { setBusy(null); }
   };
-  const done = (d?.proposals || []).filter((p) => p.status === 'approved');
   const now = d?.now;
   return (
     <section className="panel" id="classify">
@@ -60,14 +59,14 @@ export default function Classify() {
       </div>
       {err ? <p className="review-empty cl-err">{err}</p> : null}
       {d?.lastRun && !d.lastRun.ok ? <p className="review-empty cl-err">הריצה האחרונה של הסוכן ({new Date(d.lastRun.ts).toLocaleString('he-IL', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}) נכשלה: {d.lastRun.error}. ההצעות למטה הן מהריצה התקינה הקודמת.</p> : null}
-      {!d ? <p className="brief-loading">טוען…</p> : now?.rows === 0 ? (
-        <p className="q-clean">כל תנועות הבנק מסווגות. {done.length ? `${done.length} חוקים נכתבו מהצעות הסוכן.` : ''}</p>
-      ) : pending.length === 0 ? (
+      {!d ? <p className="brief-loading">טוען…</p> : pending.length === 0 ? (now?.rows === 0 ? (
+        <p className="q-clean">כל תנועות הבנק מסווגות. {rules.length ? `${rules.length} חוקים נכתבו מהצעות הסוכן.` : ''}</p>
+      ) : (
         <p className="review-empty">
           {d.empty || !d.ok ? 'הסוכן עוד לא הציע סיווגים. ' : 'אין הצעות פתוחות. '}
           מריצים <code>npm run classify</code> (רץ על מנוי Claude שלך; בפעם הראשונה עם <code>-- --yes</code> לאישור שליחת תמצית הנתונים) או <code>/classify</code> בתוך Claude Code; ההצעות יופיעו כאן לאישור.
         </p>
-      ) : (
+      )) : (
         <ul className="cl-list">
           {pending.map((p) => (
             <li className="cl-item" key={p.side + p.counterparty}>
