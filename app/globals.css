@@ -1,0 +1,803 @@
+/* חדר מצב כסף — printed private-bank statement. Warm paper, near-black ink, restrained ochre. */
+
+:root {
+  --bg: #F7F5F0;            /* warm paper */
+  --panel: #FFFFFF;
+  --panel-hi: #FFFFFF;
+  --line: #DBD4C4;
+  --line-soft: #EAE5D9;
+  --gold: #8A6A25;          /* ochre — 5.0:1 on white (brand/critical numbers) */
+  --gold-hi: #B08A33;
+  --gold-dim: rgba(138, 106, 37, 0.12);
+  --ink: #191613;
+  --ink-2: #57503F;
+  --ink-3: #6E6759;
+  --pos: #0B7A66;           /* dark teal — AA on white */
+  --neg: #B23A1E;           /* dark coral — AA on white (CVD-safe pair) */
+  --font-d: var(--font-display), 'Frank Ruhl Libre', serif;
+  --font-b: var(--font-body), 'Heebo', sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  background:
+    radial-gradient(1100px 480px at 82% -120px, rgba(138, 106, 37, 0.05), transparent 62%),
+    radial-gradient(900px 600px at 8% 108%, rgba(11, 122, 102, 0.03), transparent 60%),
+    var(--bg);
+  color: var(--ink);
+  font-family: var(--font-b);
+  font-weight: 300;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+.container { max-width: 1180px; margin: 0 auto; padding: 28px 24px 64px; }
+
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; padding-bottom: 18px; margin-bottom: 26px;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.masthead::after {
+  content: ''; position: absolute; bottom: -1px; right: 0; width: 120px; height: 1px;
+  background: linear-gradient(to left, var(--gold), transparent);
+}
+.masthead .kicker {
+  font-size: 0.7rem; letter-spacing: 0.28em; color: var(--gold);
+  text-transform: uppercase; margin-bottom: 2px; font-weight: 400;
+}
+.masthead h1 {
+  font-family: var(--font-d); font-weight: 500; font-size: 2rem;
+  margin: 0; letter-spacing: 0.01em; line-height: 1.15;
+}
+.masthead .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- alert ribbon ---------- */
+.ribbon { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 22px; }
+.ribbon .chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 14px; border-radius: 100px;
+  background: var(--panel); border: 1px solid var(--line);
+  font-size: 0.82rem; color: var(--ink-2); font-weight: 400;
+}
+.ribbon .chip .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.ribbon .chip.crit { border-color: rgba(178, 58, 30, 0.3); color: var(--ink); }
+.ribbon .chip.crit .dot { background: var(--neg); animation: pulse 2.4s ease-in-out infinite; }
+.ribbon .chip.warn .dot { background: var(--gold); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ---------- panels & grid ---------- */
+.grid-hero { display: grid; grid-template-columns: 7fr 5fr; gap: 18px; margin-bottom: 18px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+@media (max-width: 980px) { .grid-hero, .grid-3 { grid-template-columns: 1fr; } }
+
+/* grid-3's children are wrapper divs (see .follows-month / .as-of-today below),
+   not the .panel sections directly. CSS Grid's default align-items:stretch still
+   stretches those wrapper divs to the row's tallest — confirmed equal-height —
+   but an ordinary block child does not itself fill an auto-height parent, so
+   without this the .panel inside stayed at content height. Grid's stretch gives
+   the wrapper a definite (not auto) height, which a percentage-height child can
+   then resolve against — so the wrapper only needs height:100% pushed onto the
+   panel; * { box-sizing: border-box } above keeps its padding/border inside
+   that 100% rather than overflowing it. */
+.grid-3 .g3-cell > .panel { height: 100%; }
+
+.panel {
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(25, 22, 19, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 22px 24px;
+  position: relative;
+  overflow: hidden;
+  animation: rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.panel.full { margin-bottom: 18px; }
+section.panel:nth-of-type(2) { animation-delay: 0.05s; }
+section.panel:nth-of-type(3) { animation-delay: 0.1s; }
+section.panel:nth-of-type(4) { animation-delay: 0.15s; }
+/* Cashflow and AccountsCard (now inside .g3-cell wrappers) each sit one level
+   deeper than they used to — each is its wrapper's only section, permanently
+   nth-of-type(1), so the rule above no longer reaches them. Same two delay
+   values, pinned explicitly to where the wrapping now puts them. (Flags was
+   never covered by the rule above — it was already past nth-of-type(4) before
+   it was ever wrapped — so it needs no explicit delay; BankTransfers, still
+   unwrapped, is main's 4th section and keeps picking up 0.15s from the rule
+   above automatically.) */
+.grid-3 .g3-cell:nth-child(2) > .panel { animation-delay: 0.05s; }
+.grid-3 .g3-cell:nth-child(3) > .panel { animation-delay: 0.1s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.panel-head h2 {
+  font-size: 0.72rem; font-weight: 500; letter-spacing: 0.22em;
+  color: var(--ink-3); margin: 0; text-transform: uppercase;
+}
+.panel-head .side { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- hero ---------- */
+.hero-figure { font-family: var(--font-d); font-weight: 500; font-size: 3.4rem; line-height: 1.05; color: var(--gold); letter-spacing: 0.01em; }
+.hero-figure.neg { color: var(--neg); }
+.hero-sub { color: var(--ink-3); font-size: 0.82rem; margin-top: 2px; }
+.hero-secondary { font-family: var(--font-d); font-weight: 500; font-size: 2.4rem; line-height: 1.1; color: var(--ink); }
+
+.break-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.break-chips .bchip {
+  padding: 6px 12px; border-radius: 10px; background: rgba(25, 22, 19, 0.03);
+  border: 1px solid var(--line-soft); font-size: 0.8rem; color: var(--ink-2);
+}
+.break-chips .bchip b { color: var(--ink); font-weight: 500; margin-inline-start: 6px; }
+
+.spark-wrap { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.spark-note { color: var(--ink-3); font-size: 0.75rem; margin-top: 6px; }
+
+/* ---------- stats / rows ---------- */
+.kv { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); font-size: 0.88rem; }
+.kv:last-child { border-bottom: none; }
+.kv .k { color: var(--ink-2); font-weight: 300; }
+.kv .v { color: var(--ink); font-weight: 400; }
+
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
+.gold { color: var(--gold); }
+
+/* ---------- badges ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.7rem; padding: 3px 10px; border-radius: 100px;
+  border: 1px solid var(--line); color: var(--ink-3); font-weight: 400;
+  background: rgba(25, 22, 19, 0.02);
+}
+.badge.ok::before, .badge.warn::before, .badge.stale::before {
+  content: ''; width: 5px; height: 5px; border-radius: 50%;
+}
+.badge.ok::before { background: var(--pos); }
+.badge.warn::before { background: var(--gold); }
+.badge.stale::before { background: var(--neg); }
+
+/* ---------- tables ---------- */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+th {
+  text-align: right; font-weight: 400; font-size: 0.68rem; letter-spacing: 0.14em;
+  color: var(--ink-3); padding: 6px 10px; border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+td { padding: 9px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); white-space: nowrap; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr { transition: background 0.15s; }
+tbody tr:hover { background: var(--gold-dim); }
+td.num, th.num { text-align: left; direction: ltr; font-variant-numeric: tabular-nums; }
+td.strong { color: var(--ink); font-weight: 400; }
+.profit-cell { font-family: var(--font-d); font-size: 1rem; font-weight: 500; }
+
+.tag {
+  font-size: 0.65rem; padding: 2px 8px; border-radius: 100px;
+  border: 1px solid var(--line); color: var(--ink-3); margin-inline-start: 8px; font-weight: 400;
+}
+.tag.gold { border-color: rgba(138, 106, 37, 0.4); color: var(--gold); }
+
+.expand-row td { background: rgba(25, 22, 19, 0.03); white-space: normal; }
+.chips-line { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
+.chips-line .mini {
+  font-size: 0.72rem; padding: 3px 9px; border-radius: 8px;
+  background: rgba(25, 22, 19, 0.035); border: 1px solid var(--line-soft); color: var(--ink-2);
+}
+.chips-line .mini b { color: var(--ink); font-weight: 500; }
+
+/* ---------- advances gauge ---------- */
+.gauge-track { height: 10px; border-radius: 100px; background: #ECE7DB; overflow: hidden; margin: 14px 0 8px; }
+.gauge-fill { height: 100%; border-radius: 100px; background: linear-gradient(to left, var(--gold-hi), var(--gold)); transition: width 0.6s ease; }
+.gauge-meta { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--ink-3); }
+.deadline { margin-top: 12px; font-size: 0.82rem; color: var(--ink-2); }
+.deadline.late { color: var(--neg); }
+
+/* ---------- cashflow ---------- */
+.dip-callout {
+  margin: 12px 0; padding: 10px 14px; border-radius: 12px;
+  border: 1px solid rgba(178, 58, 30, 0.3); background: rgba(178, 58, 30, 0.05);
+  font-size: 0.84rem; color: var(--ink);
+}
+.dip-callout .num { font-family: var(--font-d); font-weight: 500; }
+.cash-list { margin-top: 8px; }
+.cash-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 0.82rem; }
+.cash-row:last-child { border-bottom: none; }
+.cash-row .d { color: var(--ink-3); min-width: 64px; }
+.cash-row .n { color: var(--ink-2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cash-row .a { font-variant-numeric: tabular-nums; direction: ltr; }
+.cash-row .p { color: var(--ink-3); font-variant-numeric: tabular-nums; direction: ltr; min-width: 84px; text-align: left; }
+
+/* ---------- flags ---------- */
+.flag-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 800px) { .flag-groups { grid-template-columns: 1fr; } }
+details.flag-group {
+  border: 1px solid var(--line); border-radius: 12px; padding: 0;
+  background: rgba(25, 22, 19, 0.02); overflow: hidden;
+}
+details.flag-group summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; font-size: 0.86rem; color: var(--ink); font-weight: 400;
+}
+details.flag-group summary::-webkit-details-marker { display: none; }
+details.flag-group summary .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+details.flag-group summary .sum { margin-inline-start: auto; color: var(--ink-3); font-size: 0.78rem; }
+details.flag-group[open] summary { border-bottom: 1px solid var(--line-soft); }
+.flag-items { max-height: 300px; overflow-y: auto; padding: 6px 16px 10px; }
+.flag-item { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 0.79rem; color: var(--ink-2); border-bottom: 1px dashed var(--line-soft); }
+.flag-item:last-child { border-bottom: none; }
+.flag-item .amt { direction: ltr; font-variant-numeric: tabular-nums; color: var(--ink-3); white-space: nowrap; }
+.sev-high { background: var(--neg); }
+.sev-med { background: var(--gold); }
+.sev-low { background: var(--ink-3); }
+
+/* ---------- channels ---------- */
+.ch .panel-head .side .badge { white-space: nowrap; }
+
+/* cards row — one card per channel, current month; the "remaining" figure is the hero */
+.ch-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.ch-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px 12px;
+  background: rgba(25, 22, 19, 0.015);
+  position: relative;
+  overflow: hidden;
+}
+.ch-card::before {
+  content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: 3px;
+  background: linear-gradient(to bottom, var(--gold), transparent);
+  opacity: 0.55;
+}
+.ch-card-name {
+  font-size: 0.82rem; font-weight: 500; color: var(--ink);
+  margin-bottom: 10px; letter-spacing: 0.01em;
+}
+.ch-card-remaining {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding-bottom: 10px; margin-bottom: 8px; border-bottom: 1px solid var(--line-soft);
+}
+.ch-card-remaining .k { font-size: 0.7rem; color: var(--ink-3); }
+.ch-card-remaining .v {
+  font-family: var(--font-d); font-weight: 500; font-size: 1.3rem; line-height: 1;
+}
+.ch-card-line {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 0.76rem; padding: 3px 0;
+}
+.ch-card-line .k { color: var(--ink-3); }
+.ch-card-line .v { color: var(--ink-2); font-weight: 400; }
+.ch-cnt { color: var(--gold); font-size: 0.72rem; }
+
+/* share of this month's collection — quiet footer under each card */
+.ch-card-share {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line-soft);
+}
+.ch-share {
+  flex: 1; height: 4px; border-radius: 100px;
+  background: var(--line-soft); overflow: hidden;
+}
+.ch-share-fill {
+  height: 100%; border-radius: 100px; background: var(--gold);
+  transition: width 0.6s ease;
+}
+.ch-share-num { font-size: 0.7rem; color: var(--ink-3); min-width: 30px; text-align: left; }
+
+/* leader of the month — subtle emphasis, AA text colors untouched */
+.ch-card.ch-lead {
+  border-color: var(--gold);
+  background: rgba(138, 106, 37, 0.04);
+}
+.ch-card.ch-lead::before { opacity: 1; }
+
+/* mode toggle */
+.ch-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.ch-toggle-label { font-size: 0.74rem; color: var(--ink-3); }
+button.ch-tag {
+  cursor: pointer; background: rgba(25, 22, 19, 0.02); font-family: inherit;
+  transition: border-color 0.15s, color 0.15s, background 0.15s; margin-inline-start: 0;
+}
+button.ch-tag:hover { border-color: var(--gold); color: var(--gold); }
+button.ch-tag.gold { background: var(--gold-dim); border-color: rgba(138, 106, 37, 0.4); }
+
+/* channel × month table */
+.ch-table td, .ch-table th { white-space: nowrap; }
+.ch-table td.strong .ch-swatch,
+.ch-legend-item .ch-swatch {
+  display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+  margin-inline-end: 7px; vertical-align: baseline;
+}
+.ch-zero { color: var(--line); }
+.ch-total-row td { border-top: 1px solid var(--line); border-bottom: none; color: var(--ink); }
+.ch-total-row td.strong { color: var(--ink); font-weight: 500; }
+.ch-club-row td { color: var(--ink-3); font-size: 0.8rem; }
+.ch-club-row td.strong { color: var(--ink-2); }
+.ch-unmatched-row td { color: var(--neg); }
+.ch-unmatched-row td.strong { color: var(--neg); }
+
+.ch-club-note { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 2px 0; }
+.ch-fine { font-size: 0.72rem; color: var(--ink-3); }
+.ch-fine b { color: var(--ink-2); font-weight: 500; }
+
+/* reconciliation line */
+.ch-recon { margin-top: 12px; }
+.ch-recon .k { color: var(--ink-2); }
+.ch-recon .k b { color: var(--ink); font-weight: 500; }
+.ch-recon .v { font-weight: 500; }
+
+/* 12-month projection strip */
+.ch-proj { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.ch-proj-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; margin-bottom: 14px;
+}
+.ch-proj-title {
+  font-size: 0.7rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ch-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.ch-legend-item { font-size: 0.7rem; color: var(--ink-3); display: inline-flex; align-items: center; }
+
+.ch-bars { display: flex; flex-direction: column; gap: 7px; }
+.ch-bar-row { display: grid; grid-template-columns: 92px 1fr 96px; align-items: center; gap: 10px; }
+.ch-bar-label { font-size: 0.74rem; color: var(--ink-3); text-align: right; }
+.ch-bar-track { height: 16px; border-radius: 4px; background: #ECE7DB; overflow: hidden; }
+.ch-bar-fill {
+  display: flex; height: 100%; min-width: 2px;
+  transition: width 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.ch-bar-seg { height: 100%; }
+.ch-bar-seg:first-child { border-start-start-radius: 4px; border-end-start-radius: 4px; }
+.ch-bar-val { font-size: 0.76rem; color: var(--ink-2); text-align: left; }
+.ch-proj-empty { padding: 4px 0 2px; }
+.ch-financed { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+
+@media (max-width: 720px) {
+  .ch-bar-row { grid-template-columns: 70px 1fr 82px; }
+  .ch-recon { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+
+/* ---------- expenses ---------- */
+/* A schedule of expenditure. Each category is a ruled ledger line whose ochre
+   underline carries its share; the schedule closes on a heavy rule, and below
+   that rule sits a hatched band — the printed-form convention for "not counted"
+   — holding money that leaves the account but never touches operating profit. */
+
+/* summary band — the answer in three ledger cells */
+.ex-summary {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line-soft); border-radius: 12px;
+  background: rgba(25, 22, 19, 0.015);
+  margin-bottom: 20px; overflow: hidden;
+}
+.ex-sum-cell {
+  padding: 15px 17px; min-width: 0;
+  border-inline-start: 1px solid var(--line-soft);
+}
+.ex-sum-cell:first-child { border-inline-start: none; }
+.ex-kicker {
+  font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 9px;
+}
+.ex-figure {
+  font-family: var(--font-d); font-weight: 500; font-size: 1.9rem; line-height: 1.05;
+  color: var(--ink); letter-spacing: 0.01em;
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.ex-figure .num { font-variant-numeric: tabular-nums; }
+.ex-figure .tag { font-family: var(--font-b); align-self: center; margin-inline-start: 0; }
+.ex-lead-name {
+  font-family: var(--font-d); font-weight: 500; font-size: 1.15rem; line-height: 1.2;
+  color: var(--gold);
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.ex-lead-name.ex-tax { color: var(--ink); }
+.ex-lead-pct { font-family: var(--font-b); font-size: 0.78rem; color: var(--ink-3); font-weight: 400; }
+.ex-sub { font-size: 0.75rem; color: var(--ink-3); margin-top: 5px; }
+
+/* four-group donut — the proportion, read at a glance; the schedule under it
+   carries the precision. Segments are separated by a 2px gap of bare panel, the
+   printed convention for a cut, rather than by an outline around each wedge. */
+.ex-groups {
+  margin-bottom: 20px; padding-bottom: 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ex-split {
+  display: grid; grid-template-columns: minmax(0, 330px) minmax(0, 1fr);
+  gap: 16px 28px; align-items: center;
+}
+.ex-plot { position: relative; max-width: 340px; margin-inline: auto; width: 100%; }
+.ex-donut { display: block; width: 100%; height: auto; overflow: visible; }
+.ex-arc { transition: opacity 0.18s ease; }
+.ex-arc.off { opacity: 0.28; }
+.ex-hit { cursor: default; outline: none; }
+.ex-lab { font-family: var(--font-b); font-size: 12px; font-weight: 500; fill: var(--ink); }
+.ex-lab-tick { stroke: var(--line); stroke-width: 1; }
+
+/* the hole: the month's total. Body sans and proportional figures on purpose —
+   this is a headline to read, not a column to align, so no tabular-nums here. */
+.ex-center {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 42%; text-align: center; pointer-events: none;
+}
+.ex-center-fig {
+  font-family: var(--font-b); font-weight: 500; font-size: 1.15rem; line-height: 1.15;
+  color: var(--ink); font-variant-numeric: proportional-nums; white-space: nowrap;
+}
+.ex-center-cap {
+  font-size: 0.62rem; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ink-3); margin-top: 3px;
+}
+
+/* hover/focus readout — a slip laid over the chart, flipped away from the
+   segment that summoned it so it never covers what you are pointing at */
+.ex-tip {
+  position: absolute; left: 2%; right: 2%; z-index: 2;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(25, 22, 19, 0.13);
+  padding: 9px 12px 10px;
+  animation: ex-tip-in 0.14s ease both;
+  /* The slip can land under the cursor on a wide segment. Without this it would
+     steal the pointer from the arc that summoned it and flicker on and off. */
+  pointer-events: none;
+}
+.ex-tip.is-top { top: 1%; }
+.ex-tip.is-bottom { bottom: 1%; }
+@keyframes ex-tip-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.ex-tip-head {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 0.78rem; font-weight: 500; color: var(--ink);
+  padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft);
+}
+.ex-tip-head b { font-weight: 500; direction: ltr; }
+.ex-tip-pct {
+  margin-inline-start: auto; font-size: 0.72rem; font-weight: 400;
+  color: var(--ink-3); direction: ltr;
+}
+/* a group of one carries no rows — don't leave its rule hanging */
+.ex-tip-head:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
+.ex-tip-sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.ex-tip-row {
+  display: flex; align-items: baseline; gap: 12px;
+  font-size: 0.72rem; color: var(--ink-2); padding: 1.5px 0;
+}
+.ex-tip-row b { margin-inline-start: auto; color: var(--ink); font-weight: 400; direction: ltr; }
+
+/* legend — always all four, ruled like the schedule so it reads as a table too */
+.ex-legend { display: flex; flex-direction: column; }
+/* real buttons: the keyboard route to every series, since a focusable SVG shape
+   fires no focus event and would be a dead tab stop */
+button.ex-leg {
+  appearance: none; background: none; font: inherit; color: inherit;
+  width: 100%; text-align: inherit; cursor: default;
+  /* the ruled line lives here too: a bare `border: 0` reset would out-specify
+     the rule on .ex-leg and quietly strip the ledger lines */
+  border: 0; border-bottom: 1px solid var(--line-soft);
+}
+.ex-leg {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) 104px 46px;
+  align-items: center; gap: 10px;
+  padding: 9px 10px; margin-inline: -10px;
+  border-radius: 6px;
+  transition: background 0.15s, opacity 0.15s;
+}
+button.ex-leg:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.ex-leg:last-child { border-bottom: none; }
+.ex-leg.on { background: rgba(25, 22, 19, 0.04); }
+.ex-leg.off { opacity: 0.45; }
+.ex-leg-sw { width: 12px; height: 12px; border-radius: 3px; }
+.ex-leg-name {
+  font-size: 0.86rem; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ex-leg-amt { font-size: 0.86rem; color: var(--ink); text-align: left; direction: ltr; }
+.ex-leg-pct { font-size: 0.76rem; color: var(--ink-3); text-align: left; direction: ltr; }
+
+/* the schedule */
+.ex-cats { display: flex; flex-direction: column; }
+.ex-cat {
+  display: grid; grid-template-columns: 136px 1fr 104px 50px;
+  align-items: center; gap: 12px;
+  padding: 9px 10px; margin-inline: -10px;
+  border-bottom: 1px solid var(--line-soft);
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.ex-cat:last-child { border-bottom: none; }
+.ex-cat:hover { background: var(--gold-dim); }
+.ex-cat-name {
+  font-size: 0.84rem; color: var(--ink-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ex-track { height: 7px; border-radius: 100px; background: #ECE7DB; overflow: hidden; }
+.ex-fill {
+  display: block; height: 100%; border-radius: 100px; min-width: 3px;
+  transition: width 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.ex-amt { font-size: 0.84rem; color: var(--ink); text-align: left; direction: ltr; }
+.ex-pct { font-size: 0.74rem; color: var(--ink-3); text-align: left; direction: ltr; }
+
+/* leader of the month — heavier ink, taller rule, solid ochre */
+.ex-cat-lead .ex-cat-name { color: var(--ink); font-weight: 500; }
+.ex-cat-lead .ex-amt { font-weight: 500; }
+.ex-cat-lead .ex-track { height: 10px; }
+.ex-cat-lead .ex-fill {
+  background: linear-gradient(to left, var(--gold-hi), var(--gold)) !important;
+}
+
+/* vendors */
+.ex-sec { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.ex-sec-title {
+  font-size: 0.7rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 12px;
+}
+.ex-table td, .ex-table th { white-space: nowrap; }
+.ex-cat-cell { color: var(--ink-3); font-size: 0.8rem; }
+.ex-oob-row td, .ex-oob-row td.strong { color: var(--ink-3); }
+.tag.ex-oob {
+  border-color: rgba(178, 58, 30, 0.32); color: var(--neg);
+  background: rgba(178, 58, 30, 0.04);
+}
+.ex-fine { font-size: 0.72rem; color: var(--ink-3); margin: 10px 2px 0; line-height: 1.5; }
+
+/* closing band — full-bleed to the panel edge, below the heavy rule */
+.ex-below {
+  margin: 24px -24px -22px; padding: 16px 24px 18px;
+  border-top: 2px solid var(--line);
+  background:
+    repeating-linear-gradient(135deg,
+      rgba(178, 58, 30, 0.05) 0 5px, transparent 5px 13px),
+    rgba(178, 58, 30, 0.028);
+}
+.ex-below-main { font-size: 0.92rem; color: var(--ink); line-height: 1.5; }
+.ex-below-main b {
+  font-family: var(--font-d); font-size: 1.2rem; font-weight: 500;
+  color: var(--neg); margin-inline: 5px;
+}
+.ex-below-items { display: flex; flex-wrap: wrap; gap: 7px 9px; margin-top: 11px; }
+.ex-below-item {
+  font-size: 0.76rem; color: var(--ink-2);
+  border: 1px solid rgba(178, 58, 30, 0.2); background: rgba(255, 255, 255, 0.55);
+  border-radius: 8px; padding: 4px 11px;
+}
+.ex-below-item b { color: var(--ink); font-weight: 500; margin-inline-start: 7px; }
+.ex-below-note { font-size: 0.72rem; color: var(--ink-3); margin-top: 10px; }
+
+@media (max-width: 860px) {
+  .ex-split { grid-template-columns: 1fr; }
+  .ex-summary { grid-template-columns: 1fr 1fr; }
+  .ex-sum-cell:nth-child(odd) { border-inline-start: none; }
+  .ex-sum-cell:nth-child(n + 3) { border-block-start: 1px solid var(--line-soft); }
+}
+@media (max-width: 720px) {
+  .ex-cat {
+    grid-template-columns: 1fr 100px 46px;
+    grid-template-areas: 'name amt pct' 'track track track';
+    gap: 7px 10px;
+  }
+  .ex-cat-name { grid-area: name; }
+  .ex-amt { grid-area: amt; }
+  .ex-pct { grid-area: pct; }
+  .ex-track { grid-area: track; }
+}
+@media (max-width: 520px) {
+  .ex-summary { grid-template-columns: 1fr; }
+  .ex-sum-cell { border-inline-start: none; }
+  .ex-sum-cell:not(:first-child) { border-block-start: 1px solid var(--line-soft); }
+  .ex-leg { grid-template-columns: 12px minmax(0, 1fr) 92px 42px; gap: 8px; }
+  .ex-center-fig { font-size: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ex-tip { animation: none; }
+  .ex-arc, .ex-leg { transition: none; }
+}
+
+/* ---------- bottomline ---------- */
+/* The top line of the statement: four cells, hairline-ruled like a ledger.
+   Ochre top-rule signals "headline". Collapses 4→2→1 at the shared breakpoints. */
+.bl { padding: 0; position: relative; }
+.bl::before {
+  content: ''; position: absolute; inset-block-start: 0; inset-inline: 0; height: 2px;
+  background: linear-gradient(to left, var(--gold), var(--gold-hi) 55%, transparent);
+  opacity: 0.9;
+}
+.bl-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+}
+.bl-cell {
+  padding: 20px 24px 18px;
+  border-inline-start: 1px solid var(--line-soft);
+  min-width: 0;
+}
+.bl-cell:first-child { border-inline-start: none; }
+
+.bl-kicker {
+  font-size: 0.66rem; font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 12px;
+}
+
+/* load-bearing figures */
+.bl-figure {
+  font-family: var(--font-d); font-weight: 500; font-size: 1.9rem; line-height: 1.05;
+  color: var(--ink); letter-spacing: 0.01em;
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.bl-figure.num { direction: ltr; }
+.bl-figure .badge { font-size: 0.62rem; font-family: var(--font-b); font-weight: 400; align-self: center; }
+.bl-figure.neg { color: var(--neg); }
+
+/* channel name sits a touch smaller so long labels don't wrap awkwardly */
+.bl-channel { font-size: 1.45rem; color: var(--gold); }
+.bl-channel .badge { color: var(--ink-3); }
+
+.bl-empty { color: var(--line); letter-spacing: 0.15em; }
+
+.bl-subs { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
+.bl-sub { font-size: 0.76rem; color: var(--ink-3); }
+.bl-sub .num { color: var(--ink-2); }
+.bl-sub .num.neg { color: var(--neg); }
+
+.bl-share { color: var(--ink); font-weight: 500; }
+.bl-share-note { color: var(--ink-3); }
+
+.bl-adv.neg, .bl-adv.neg .num { color: var(--neg); }
+.bl-adv.pos, .bl-adv.pos .num { color: var(--pos); }
+
+@media (max-width: 980px) {
+  .bl-grid { grid-template-columns: 1fr 1fr; }
+  /* re-seat separators/top-rules for the 2-col layout */
+  .bl-cell { border-inline-start: 1px solid var(--line-soft); }
+  .bl-cell:nth-child(odd) { border-inline-start: none; }
+  .bl-cell:nth-child(n + 3) { border-block-start: 1px solid var(--line-soft); }
+}
+@media (max-width: 560px) {
+  .bl-grid { grid-template-columns: 1fr; }
+  .bl-cell { border-inline-start: none; }
+  .bl-cell:not(:first-child) { border-block-start: 1px solid var(--line-soft); }
+}
+
+/* ---------- misc ---------- */
+.empty { color: var(--ink-3); font-size: 0.84rem; padding: 14px 0; }
+footer { margin-top: 34px; text-align: center; color: var(--ink-3); font-size: 0.72rem; letter-spacing: 0.08em; }
+footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.4; margin-bottom: 10px; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 100px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* YTD is the headline figure on a channel card; the month is a footnote. */
+.ch-card-ytd {
+  display: flex; flex-direction: column; gap: 2px;
+  padding-bottom: 10px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ch-card-ytd .k { font-size: 0.68rem; letter-spacing: 0.1em; color: var(--ink-3); }
+.ch-card-ytd .v {
+  font-family: var(--font-d); font-weight: 500;
+  font-size: 1.5rem; line-height: 1.15; color: var(--ink);
+}
+.ch-card-cur { opacity: 0.72; }
+
+/* Bank-transfer turnover and its assignment worklist. */
+.bt-summary {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--line-soft); border-radius: 12px;
+  overflow: hidden; margin-bottom: 22px;
+}
+.bt-summary .cell { padding: 16px 18px; border-inline-start: 1px solid var(--line-soft); }
+.bt-summary .cell:first-child { border-inline-start: 0; }
+.bt-summary .kick { font-size: 0.68rem; letter-spacing: 0.12em; color: var(--ink-3); margin-bottom: 6px; }
+.bt-summary .fig { font-family: var(--font-d); font-weight: 500; font-size: 1.55rem; line-height: 1.1; }
+.bt-summary .sub { font-size: 0.78rem; color: var(--ink-3); margin-top: 4px; }
+/* Kicker treatment for the worklist header — mirrors .ex-sec-title exactly. */
+.sec-title {
+  font-size: 0.7rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: 12px;
+}
+.bt-list { list-style: none; margin: 0; padding: 0; }
+.bt-row {
+  display: grid; grid-template-columns: 92px 104px 1fr 168px;
+  gap: 14px; align-items: center;
+  padding: 9px 4px; border-bottom: 1px solid var(--line-soft); font-size: 0.86rem;
+}
+.bt-row:last-child { border-bottom: 0; }
+.bt-date { color: var(--ink-3); font-size: 0.78rem; }
+.bt-amt { color: var(--ink); font-weight: 400; }
+.bt-who { color: var(--ink-2); }
+.bt-pick {
+  font: inherit; font-size: 0.82rem; color: var(--ink-2);
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 9px; cursor: pointer;
+}
+.bt-pick:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+/* Per-row error: spans the full row grid on its own line beneath the cells. */
+.bt-err { grid-column: 1 / -1; color: var(--neg); font-size: 0.82rem; margin: 6px 0 0; }
+.bt-clear, .bt-note, .bt-more { font-size: 0.78rem; color: var(--ink-3); margin: 12px 0 0; }
+@media (max-width: 820px) {
+  .bt-summary { grid-template-columns: 1fr 1fr; }
+  .bt-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* Global month picker — one control for the whole board. */
+.mp { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; }
+.mp-chip {
+  font: inherit; font-size: 0.78rem; color: var(--ink-3);
+  background: transparent; border: 1px solid var(--line);
+  border-radius: 100px; padding: 4px 13px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.mp-chip:hover { border-color: var(--ink-3); color: var(--ink-2); }
+.mp-chip.on { border-color: var(--gold); color: var(--gold); background: rgba(138, 106, 37, 0.06); }
+.mp-chip:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.mp-part { font-size: 0.66rem; opacity: 0.7; }
+
+/* Panels that cannot be historical say so the moment a past month is picked.
+   Applied per-panel-wrapper (not on grid-hero/grid-3 as a whole) so a mixed
+   row — grid-3 has AdvancesGauge, which DOES follow the month, alongside two
+   panels that don't — never shows one ambiguous tag covering all three. */
+.as-of-today { position: relative; }
+.as-of-today::after {
+  content: 'עדכני להיום';
+  position: absolute; inset-inline-end: 4px; top: -13px;
+  font-size: 0.64rem; letter-spacing: 0.1em; color: var(--ink-3);
+}
+
+/* PnlTable: the month selected in the global picker. */
+.table-wrap tr.pnl-on > * { background: rgba(138, 106, 37, 0.07); }
+.table-wrap tr.pnl-on td:first-child { font-weight: 400; color: var(--ink); }
+
+/* Cash-vs-taxable bridge. The range is the point: its width is what is unknown. */
+.tx-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 32px; }
+.tx-steps, .tx-unk, .tx-rules { list-style: none; margin: 0 0 18px; padding: 0; }
+.tx-step, .tx-unk li, .tx-rules li {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 9px 4px; border-bottom: 1px solid var(--line-soft); font-size: 0.86rem;
+}
+.tx-step:last-child, .tx-unk li:last-child, .tx-rules li:last-child { border-bottom: 0; }
+.tx-lbl, .tx-unk li > span:first-child, .tx-rules li > span:first-child { flex: 1; color: var(--ink-2); }
+.tx-step .v, .tx-unk .v, .tx-rules .v { color: var(--ink); }
+.tx-base .tx-lbl { color: var(--ink); }
+.tx-up .v { color: var(--ink); }
+.tx-down .v { color: var(--ink-3); }
+.tx-rate { color: var(--gold); font-size: 0.8rem; min-width: 40px; text-align: end; }
+.tx-range {
+  border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-top: 4px;
+}
+.tx-range .kick { font-size: 0.68rem; letter-spacing: 0.12em; color: var(--ink-3); margin-bottom: 6px; }
+.tx-range .fig { font-family: var(--font-d); font-weight: 500; font-size: 1.45rem; line-height: 1.15; }
+.tx-range .sub { font-size: 0.8rem; color: var(--ink-3); margin-top: 6px; }
+.tx-why, .tx-disc { font-size: 0.75rem; color: var(--ink-3); margin: 10px 0 0; line-height: 1.6; }
+.tx-disc { padding-top: 14px; margin-top: 18px; border-top: 1px solid var(--line-soft); }
+@media (max-width: 900px) { .tx-grid { grid-template-columns: 1fr; gap: 20px; } }
+
+/* --- setup wizard --- */
+.su { max-width: 760px; margin: 24px auto; }
+.su-intro { color: var(--ink-2); font-weight: 300; line-height: 1.6; margin: 0 0 18px; }
+.su-h { font-size: 0.95rem; font-weight: 500; margin: 26px 0 10px; color: var(--ink); }
+.su-opt { font-size: 0.7rem; color: var(--ink-3); font-weight: 300; margin-inline-start: 8px; }
+.su-radios { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.su-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.su-field { display: flex; flex-direction: column; gap: 5px; }
+.su-label { font-size: 0.78rem; color: var(--ink-2); }
+.su-hint { font-size: 0.72rem; color: var(--ink-3); font-weight: 300; line-height: 1.5; margin: 6px 0 0; }
+.su-input { font: inherit; font-size: 0.9rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); direction: ltr; text-align: left; }
+.su-input:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.su-check { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--ink-2); margin-bottom: 12px; }
+.su-ok { font-size: 0.8rem; color: var(--gold); margin: 4px 0 10px; }
+.su-err { font-size: 0.82rem; color: #9a3b2e; border: 1px solid #e3c2bb; border-radius: 8px; padding: 8px 12px; margin-top: 16px; }
+.su-actions { display: flex; gap: 12px; align-items: center; margin-top: 22px; flex-wrap: wrap; }
+.su-btn { font: inherit; font-size: 0.92rem; padding: 10px 22px; border-radius: 100px; border: 1px solid var(--gold); background: var(--gold); color: #fff; cursor: pointer; }
+.su-btn:disabled { opacity: 0.5; cursor: default; }
+.masthead .linkish { font: inherit; font-size: 0.72rem; color: var(--ink-3); background: none; border: none; cursor: pointer; text-decoration: underline; }

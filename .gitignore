@@ -1,0 +1,11 @@
+data/
+node_modules/
+.next/
+# .claude session state stays local, but the setup skill IS the product
+.claude/*
+!.claude/skills/
+.superpowers/
+*.db
+*.db-journal
+*.log
+.env*

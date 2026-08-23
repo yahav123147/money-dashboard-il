@@ -1,0 +1,21 @@
+{
+  "_": "ערכי בסיס. האונבורדינג ממלא אותם — אל תערוך ידנית אלא אם אתה יודע מה אתה עושה.",
+  "vatRate": 1.18,
+  "advanceRatePct": null,
+  "_advanceRatePct": "שיעור המקדמה שמס הכנסה קבע לך. נשאל באונבורדינג.",
+  "usdToIls": null,
+  "_usdToIls": "רק אם יש חשבון או כרטיס במטבע זר.",
+  "flagThresholdIls": 5000,
+  "_flagThresholdIls": "סכום שמעליו תנועה בשבוע האחרון נדלקת כהתראה. ברירת מחדל 5,000. /setup מכוון לפי גודל העסק.",
+  "financyMonthlyRefreshCap": 30,
+  "_financyMonthlyRefreshCap": "מכסת רענוני Open-Finance לחודש. תלוי במסלול שלך ב-Financy — סקיל ההתקנה מכוון.",
+  "financyRefreshEnabled": true,
+  "_financyRefreshEnabled": "false אם משהו אחר כבר מרענן את אותו חשבון Financy (אפליקציה נוספת, MCP, cron). המכסה נספרת מקומית ואינה יודעת על צרכנים אחרים, ושני מרעננים על חשבון אחד שורפים קרדיטים כפול.",
+  "secondAccountBucket": null,
+  "_secondAccountBucket": "שם באקט של הוצאות שיוצאות מחשבון בנק שני שאינו מחובר לדשבורד. null = אין חשבון כזה. אם יש, הוסף חוק ב-rules.json שמסווג אליו, אחרת הגבול התחתון של הערכת המס מתעלם מהכסף הזה.",
+  "secondAccountLabel": "הוצאות מחשבון בנק שני",
+  "entityType": null,
+  "_entityType": "patur | murshe | company — נכתב ע\"י /setup. קובע את מנוע המס.",
+  "creditPoints": null,
+  "_creditPoints": "נקודות זיכוי אישיות. null = מינימום תושב 2.25. נשאל ב-/setup."
+}
