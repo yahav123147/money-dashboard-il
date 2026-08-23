@@ -61,13 +61,13 @@ export default function Classify() {
               <div className="cl-actions">
                 <button className="mp-chip on" disabled={busy === p.side + p.counterparty} onClick={() => act('approve', p)}>אשר</button>
                 <button className="mp-chip" disabled={busy === p.side + p.counterparty} onClick={() => act('reject', p)}>לא</button>
-                <span className="cl-rule">יכתוב חוק: "{p.match}" ← {p.bucket}</span>
+                <span className="cl-rule">חוק קבוע: "{p.match}" ← {p.bucket}</span>
               </div>
             </li>
           ))}
         </ul>
       )}
-      {d?.ts && pending.length ? <p className="q-foot">הצעות מ-{new Date(d.ts).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} · אישור כותב חוק ל-config/rules.json ומסווג מחדש</p> : null}
+      {d?.ts && pending.length ? <p className="q-foot">הצעות מ-{new Date(d.ts).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })} · אישור שומר חוק קבוע במסד ומסווג את התנועות של המוטב</p> : null}
     </section>
   );
 }

@@ -12,6 +12,23 @@ export function loadRules(path = RULES_PATH) {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
+// Rules a person approved in /classify live in SQLite (classify_rules), so
+// approving and re-classifying are two writes to the same database and
+// serialise under its write lock. They go FIRST: first match wins.
+export function explicitRules(db) {
+  try { return db.prepare('SELECT side, match, bucket, bucket_group FROM classify_rules').all(); } catch { return []; }
+}
+export function withExplicit(db, rules) {
+  const ex = explicitRules(db);
+  if (!ex.length) return rules;
+  const mk = (r) => ({ match: [r.match], bucket: r.bucket, group: r.bucket_group, source: 'classify' });
+  return {
+    ...rules,
+    inflows: [...ex.filter((r) => r.side === 'in').map(mk), ...(rules.inflows || [])],
+    outflows: [...ex.filter((r) => r.side === 'out').map(mk), ...(rules.outflows || [])],
+  };
+}
+
 function parseAmount(v) {
   if (v === '' || v == null) return null;
   const n = Number(v);
@@ -110,7 +127,14 @@ export function tokenMatch(a, b) {
 // oldest money first, so a client who paid 100k over a year justifies 100k of
 // refunds in total, not 100k against every separate payment to anyone who
 // shares a word with their name.
-export function classifyAll(db, rules = loadRules()) {
+export function classifyAll(db, fileRules = loadRules()) {
+  // BEGIN IMMEDIATE: the explicit rules are read and every row rewritten
+  // inside one write lock, so an approval cannot land between the read and
+  // the rewrite and be undone by it.
+  return db.transaction(() => classifyAllLocked(db, withExplicit(db, fileRules))).immediate();
+}
+
+function classifyAllLocked(db, rules) {
   const rows = db.prepare(`
     SELECT id, account_type, amount, currency, counterparty, raw_desc, date
     FROM bank_transactions
@@ -184,13 +208,10 @@ export function classifyAll(db, rules = loadRules()) {
     UPDATE bank_transactions SET side=?, bucket=?, bucket_group=?, sub_bucket=?, expense_channel=?, updated_at=datetime('now')
     WHERE id=?
   `);
-  const applyAll = db.transaction(() => {
-    for (const row of rows) {
-      const res = results.get(row.id);
-      update.run(row.amount >= 0 ? 'in' : 'out', res.bucket, res.group,
-        res.sub ?? null, res.channel ?? null, row.id);
-    }
-  });
-  applyAll();
+  for (const row of rows) {
+    const res = results.get(row.id);
+    update.run(row.amount >= 0 ? 'in' : 'out', res.bucket, res.group,
+      res.sub ?? null, res.channel ?? null, row.id);
+  }
   return rows.length;
 }

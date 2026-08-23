@@ -3,13 +3,8 @@
 // itself (Claude, through the user's subscription) only ever sees the
 // groups below and returns JSON; every write goes through applyProposal,
 // after a person approved it in the dashboard or in /classify.
-import { readFileSync, writeFileSync, renameSync, rmSync, openSync, writeSync, closeSync, statSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { loadRules } from './classify.mjs';
+import { loadRules, explicitRules } from './classify.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const RULES_PATH = join(ROOT, 'config', 'rules.json');
 
 // The vocabulary the agent may use for bank rows. Anything else is rejected.
 export const BANK_BUCKETS = {
@@ -63,8 +58,9 @@ export function gatherUnclassified(db, { limit = 40 } = {}) {
 }
 
 // Existing rules as examples, so the agent mirrors the house style.
-export function ruleExamples(rules = loadRules()) {
+export function ruleExamples(db, rules = loadRules()) {
   const ex = [];
+  if (db) for (const r of explicitRules(db)) ex.push({ side: r.side, match: [r.match], bucket: r.bucket });
   for (const r of rules.outflows || []) if (r.match) ex.push({ side: 'out', match: r.match, bucket: r.bucket });
   for (const r of rules.inflows || []) if (r.match) ex.push({ side: 'in', match: r.match, bucket: r.bucket });
   return ex.slice(-12);
@@ -104,11 +100,11 @@ export function parseProposals(text, groups) {
   return out;
 }
 
-// Write one approved proposal as a rule, then reclassify the history of that
-// one counterparty. The rule (a substring) is for future syncs; the history
-// update is exact on name + direction so approving "בעמ" for one supplier
-// cannot touch another.
-export function applyProposal(db, { side, match, bucket, counterparty }, path = RULES_PATH) {
+// One approved proposal = one SQLite transaction: the rule row and the
+// history update commit together or not at all. No file, no lock file, no
+// window between "rows classified" and "rule published". The history update
+// is by exact name + direction, and only rows still unclassified.
+export function applyProposal(db, { side, match, bucket, counterparty }) {
   if (side !== 'in' && side !== 'out') throw new Error('כיוון לא תקין');
   const vocab = BANK_BUCKETS[side];
   if (typeof bucket !== 'string' || !Object.hasOwn(vocab, bucket)) throw new Error('קטגוריה לא מוכרת');
@@ -117,60 +113,21 @@ export function applyProposal(db, { side, match, bucket, counterparty }, path = 
   if (!name) throw new Error('חסר שם מוטב');
   const m = String(match || '').trim();
   if (m.length < 2) throw new Error('טקסט התאמה קצר מדי');
-  const key = side === 'in' ? 'inflows' : 'outflows';
-  const rule = { match: [m], bucket, group, source: 'classify' };
-
-  // One exclusive file lock around the whole read → update → publish, across
-  // processes (the API, /classify, a script). The SQLite write lock alone is
-  // not enough: it is released at COMMIT, before the rename publishes the
-  // file, and a second writer reading rules.json in that gap loses the rule.
-  const release = acquireLock(path + '.lock');
-  const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  try {
-    const rules = JSON.parse(readFileSync(path, 'utf8'));
-    rules[key] = Array.isArray(rules[key]) ? rules[key] : [];
-    rules[key] = rules[key].filter((r) => !(r.source === 'classify' && Array.isArray(r.match) && r.match.length === 1 && r.match[0] === m));
-    rules[key].unshift(rule); // first match wins in the engine
-    // Exactly the rows this decision touches, by id, so a revert can never
-    // reach a row classified earlier by someone else.
-    const ids = db.prepare(`
-      SELECT id FROM bank_transactions
+  // A rule that does not match its own counterparty would be undone by the
+  // next full reclassify; refuse it here, not only in the parser.
+  if (!name.includes(m)) throw new Error('טקסט ההתאמה חייב להופיע בשם המוטב');
+  const n = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO classify_rules (side, match, bucket, bucket_group, counterparty, created_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(side, match) DO UPDATE SET bucket=excluded.bucket, bucket_group=excluded.bucket_group, counterparty=excluded.counterparty, created_at=excluded.created_at
+    `).run(side, m, bucket, group, name);
+    return db.prepare(`
+      UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now')
       WHERE account_type='CHECKING' AND currency='ILS' AND bucket_group='unclassified'
         AND ((? = 'in' AND amount >= 0) OR (? = 'out' AND amount < 0))
         AND TRIM(COALESCE(counterparty, raw_desc, '')) = ?
-    `).all(side, side, name).map((r) => r.id);
-    const idList = JSON.stringify(ids);
-    db.transaction(() => {
-      db.prepare(`UPDATE bank_transactions SET bucket=?, bucket_group=?, updated_at=datetime('now') WHERE id IN (SELECT value FROM json_each(?))`).run(bucket, group, idList);
-    }).immediate();
-    writeFileSync(tmp, JSON.stringify(rules, null, 2) + '\n');
-    try { renameSync(tmp, path); } catch (e) {
-      rmSync(tmp, { force: true });
-      db.prepare(`UPDATE bank_transactions SET bucket='unclassified', bucket_group='unclassified', updated_at=datetime('now') WHERE id IN (SELECT value FROM json_each(?))`).run(idList);
-      throw new Error(`החוק לא נשמר (${e.message}); הסיווג בוטל`);
-    }
-    return { rule: { match: [m], bucket, group }, reclassified: ids.length };
-  } finally {
-    rmSync(tmp, { force: true });
-    release();
-  }
-}
-
-// Exclusive advisory lock via O_EXCL create. Waits up to `waitMs`; a lock
-// older than `staleMs` (a crashed holder) is taken over.
-export function acquireLock(lockPath, { waitMs = 30000, staleMs = 60000 } = {}) {
-  const start = Date.now();
-  for (;;) {
-    try {
-      const fd = openSync(lockPath, 'wx');
-      writeSync(fd, String(process.pid));
-      closeSync(fd);
-      return () => rmSync(lockPath, { force: true });
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      try { if (Date.now() - statSync(lockPath).mtimeMs > staleMs) { rmSync(lockPath, { force: true }); continue; } } catch { continue; }
-      if (Date.now() - start > waitMs) throw new Error('קובץ החוקים נעול על ידי תהליך אחר; לנסות שוב');
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25); // sleep 25ms, synchronously
-    }
-  }
+    `).run(bucket, group, side, side, name).changes;
+  }).immediate();
+  return { rule: { match: [m], bucket, group }, reclassified: n };
 }

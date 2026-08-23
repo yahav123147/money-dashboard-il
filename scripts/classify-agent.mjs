@@ -21,7 +21,7 @@ const db = q.getDb();
 const today = q.israelToday();
 const u = gatherUnclassified(db);
 const vocabulary = Object.fromEntries(Object.entries(BANK_BUCKETS).map(([side, v]) => [side, Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x.label]))]));
-const snapshot = { date: today, entityType: q.settings.entityType ?? null, groups: u.groups, totalGroups: u.totalGroups, totalRows: u.totalRows, totalAmount: u.totalAmount, vocabulary, examples: ruleExamples() };
+const snapshot = { date: today, entityType: q.settings.entityType ?? null, groups: u.groups, totalGroups: u.totalGroups, totalRows: u.totalRows, totalAmount: u.totalAmount, vocabulary, examples: ruleExamples(db) };
 writeFileSync(join(OUT, 'snapshot.json'), JSON.stringify(snapshot, null, 1));
 console.log(`snapshot: ${u.totalGroups} מוטבים לא מסווגים (${u.totalRows} תנועות)`);
 if (process.argv.includes('--snapshot-only')) process.exit(0);

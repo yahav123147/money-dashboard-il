@@ -7,7 +7,7 @@
 //      apiKeyHelper logins are refused, so a run can never bill an API account;
 //   3. a bounded run with an atomic write of the result.
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, rmSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,13 +25,14 @@ export const DATA_NOTICE = `הסוכן שולח ל-Claude תמצית של הנת
 // but managed settings cannot be switched off, so every file is inspected.
 const FORBIDDEN_ENV = /^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDE_CODE_API|AWS_BEARER_TOKEN|AZURE_|GOOGLE_APPLICATION|CLOUD_ML_REGION)/;
 export function settingsFiles(root = ROOT) {
-  return [
-    '/Library/Application Support/ClaudeCode/managed-settings.json',
-    '/etc/claude-code/managed-settings.json',
-    join(homedir(), '.claude', 'settings.json'),
-    join(root, '.claude', 'settings.json'),
-    join(root, '.claude', 'settings.local.json'),
-  ];
+  const files = [];
+  for (const dir of ['/Library/Application Support/ClaudeCode', '/etc/claude-code']) {
+    files.push(join(dir, 'managed-settings.json'));
+    const d = join(dir, 'managed-settings.d');
+    try { for (const f of readdirSync(d)) if (f.endsWith('.json')) files.push(join(d, f)); } catch { /* none */ }
+  }
+  files.push(join(homedir(), '.claude', 'settings.json'), join(root, '.claude', 'settings.json'), join(root, '.claude', 'settings.local.json'));
+  return files;
 }
 export function findProviderOverrides(files = settingsFiles()) {
   const found = [];
@@ -39,9 +40,17 @@ export function findProviderOverrides(files = settingsFiles()) {
     if (!existsSync(f)) continue;
     let j; try { j = JSON.parse(readFileSync(f, 'utf8')); } catch { found.push(`${f}: לא ניתן לקרוא`); continue; }
     if (j && typeof j.apiKeyHelper === 'string' && j.apiKeyHelper) found.push(`${f}: apiKeyHelper`);
+    if (j && j.policyHelper) found.push(`${f}: policyHelper`);
     for (const k of Object.keys(j?.env || {})) if (FORBIDDEN_ENV.test(k)) found.push(`${f}: env.${k}`);
   }
   return found;
+}
+// macOS MDM profiles can carry Claude Code settings that no file shows.
+// We cannot parse them reliably, so their presence alone is a refusal.
+export function mdmManagedSettingsPresent() {
+  if (process.platform !== 'darwin') return false;
+  const r = spawnSync('defaults', ['read', 'com.anthropic.claudecode'], { encoding: 'utf8', timeout: 10000 });
+  return r.status === 0 && (r.stdout || '').trim().length > 0;
 }
 
 // Snapshots are the financial data; a failed gate must not leave one behind
@@ -94,9 +103,23 @@ export function ensureSubscription() {
   // will read the snapshot next (an interactive Claude Code session included).
   const overrides = findProviderOverrides();
   for (const k of Object.keys(process.env)) if (FORBIDDEN_ENV.test(k)) overrides.push(`env: ${k}`);
+  if (mdmManagedSettingsPresent()) overrides.push('MDM: com.anthropic.claudecode (הגדרות מנוהלות שלא ניתן לאמת)');
   if (overrides.length) {
     console.error(`הגדרות Claude Code מפנות לספק או למפתח שאינם המנוי, והסוכנים מסרבים לרוץ:\n  ${overrides.join('\n  ')}`);
     return false;
+  }
+  // Inside an already-running Claude Code session the checks above describe
+  // THIS process, not the parent that will read the snapshot. With
+  // CLAUDE_CODE_SUBPROCESS_ENV_SCRUB the parent can hold an API key this
+  // process cannot see. That path is unverifiable, so it is off unless the
+  // owner switched it on knowingly (settings.agentsAllowInteractive).
+  if (process.env.CLAUDECODE || process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB) {
+    let allow = false;
+    try { allow = JSON.parse(readFileSync(SETTINGS, 'utf8')).agentsAllowInteractive === true; } catch { /* off */ }
+    if (!allow) {
+      console.error('ריצה מתוך סשן Claude Code פתוח: אי אפשר לאמת מכאן על איזה ספק הסשן עצמו רץ. המסלול הנאכף הוא npm run review / npm run classify מהטרמינל. כדי להתיר בכל זאת: config/settings.json → agentsAllowInteractive = true.');
+      return false;
+    }
   }
   return true;
 }

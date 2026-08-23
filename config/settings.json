@@ -34,5 +34,7 @@
     "team",
     "enterprise"
   ],
-  "_agentsAllowedPlans": "אילו מנויי claude.ai מותרים להרצת הסוכנים. הסקריפט מסרב לכל חיבור אחר (מפתח API, Bedrock, Vertex, Foundry). [\"max\"] = רק Max."
+  "_agentsAllowedPlans": "אילו מנויי claude.ai מותרים להרצת הסוכנים. הסקריפט מסרב לכל חיבור אחר (מפתח API, Bedrock, Vertex, Foundry). [\"max\"] = רק Max.",
+  "agentsAllowInteractive": false,
+  "_agentsAllowInteractive": "true = מתיר ל-/review ו-/classify לרוץ מתוך סשן Claude Code פתוח. הסקריפט לא יכול לאמת על איזה ספק הסשן עצמו רץ (מפתח API שמוסתר מתת-תהליכים), ולכן ברירת המחדל false; המסלול הנאכף הוא npm run review / npm run classify."
 }

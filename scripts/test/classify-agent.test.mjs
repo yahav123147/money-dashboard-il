@@ -75,32 +75,32 @@ test('explicit classify rule beats the refund heuristic on the next full run', a
   assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='o1'`).get().bucket, 'refund_direct', 'without the explicit marker the heuristic still applies');
 });
 
-test('applyProposal writes one rule to a rules file and reclassifies the rows', (t) => {
+test('applyProposal stores the rule in SQLite, first in line, and reclassifies only that counterparty', async (t) => {
+  const { classifyAll, withExplicit } = await import('../lib/classify.mjs');
   const db = tmpDb(t, 'test-cla2.db');
   tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
   tx(db, 'a2', '2026-08-01', -3200, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
   tx(db, 'z1', '2026-08-02', -9000, 'פרילנסר', 'team', 'expense'); // classified some other way: must not move
-  const rulesPath = join(ROOT, 'data', 'test-rules.json');
-  writeFileSync(rulesPath, JSON.stringify({ inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } } }));
-  t.after(() => rmSync(rulesPath, { force: true }));
-  tx(db, 'y1', '2026-08-05', -2500, 'הוט מובייל שירותי ענן בעמ', 'unclassified', 'unclassified'); // another counterparty sharing the substring: history must not move
-  const res = applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, rulesPath);
+  tx(db, 'y1', '2026-08-05', -2500, 'הוט מובייל שירותי ענן בעמ', 'unclassified', 'unclassified'); // shares the substring: history must not move
+  const res = applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' });
   assert.deepEqual(res.rule, { match: ['הוט מובייל'], bucket: 'suppliers_other', group: 'expense' });
-  const rules = JSON.parse(readFileSync(rulesPath, 'utf8'));
-  assert.equal(rules.outflows.filter((r) => r.source === 'classify').length, 1);
+  assert.equal(res.reclassified, 2);
   const rows = db.prepare(`SELECT bucket, bucket_group FROM bank_transactions WHERE counterparty = 'הוט מובייל בעמ'`).all();
   assert.ok(rows.every((r) => r.bucket === 'suppliers_other' && r.bucket_group === 'expense'));
-  assert.equal(res.reclassified, 2);
   assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='z1'`).get().bucket, 'team');
   assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='y1'`).get().bucket_group, 'unclassified', 'substring neighbour untouched');
-  assert.equal(rules.outflows[0].source, 'classify', 'explicit rule goes first so it beats broad built-ins');
+  const merged = withExplicit(db, { inflows: [], outflows: [{ match: ['בעמ'], bucket: 'rent', group: 'expense' }] });
+  assert.equal(merged.outflows[0].source, 'classify', 'explicit rule goes first so it beats broad built-ins');
   // a second decision on the same match replaces, not duplicates
-  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }, rulesPath);
-  const rules2 = JSON.parse(readFileSync(rulesPath, 'utf8'));
-  assert.equal(rules2.outflows.filter((r) => r.match?.[0] === 'הוט מובייל').length, 1);
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'x', bucket: 'nope', counterparty: 'x' }, rulesPath));
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: '__proto__', counterparty: 'הוט מובייל בעמ' }, rulesPath), /קטגוריה/);
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: 'constructor', counterparty: 'הוט מובייל בעמ' }, rulesPath), /קטגוריה/);
+  applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'rent', counterparty: 'הוט מובייל בעמ' });
+  assert.equal(db.prepare(`SELECT COUNT(*) n FROM classify_rules`).get().n, 1);
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'xx', bucket: 'nope', counterparty: 'xx' }));
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'סלקום', bucket: 'rent', counterparty: 'הוט מובייל בעמ' }), /בשם המוטב/);
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: '__proto__', counterparty: 'הוט מובייל בעמ' }), /קטגוריה/);
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט', bucket: 'constructor', counterparty: 'הוט מובייל בעמ' }), /קטגוריה/);
+  // the next full run (sync) keeps the decision, even with file rules that never heard of it
+  classifyAll(db, { inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } }, refundPairs: [], suppliers: [] });
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'rent', 'survives a full reclassify');
 });
 
 test('parseProposals keeps both sides of the same name', () => {
@@ -112,44 +112,42 @@ test('parseProposals keeps both sides of the same name', () => {
   assert.deepEqual(out.map((p) => p.side + ':' + p.bucket).sort(), ['in:direct', 'out:suppliers_other']);
 });
 
-test('applyProposal is one unit: a failed rule write leaves the rows unclassified, and only those rows', (t) => {
+test('applyProposal is one transaction: a failing row update leaves no rule behind', (t) => {
   const db = tmpDb(t, 'test-cla5.db');
   tx(db, 'a1', '2026-07-01', -3000, 'הוט מובייל בעמ', 'unclassified', 'unclassified');
-  tx(db, 'old', '2026-06-01', -2900, 'הוט מובייל בעמ', 'suppliers_other', 'expense'); // classified earlier: a revert must not touch it
-  const badPath = join(ROOT, 'data', 'no-such-dir', 'rules.json'); // rename into a missing dir throws
-  const dirAsFile = join(ROOT, 'data');
-  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }, badPath));
-  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='a1'`).get().bucket_group, 'unclassified', 'rolled back');
-  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='old'`).get().bucket, 'suppliers_other', 'earlier classification untouched by the revert');
-  assert.equal(existsSync(join(ROOT, 'data', 'no-such-dir')), false);
-  void dirAsFile;
+  // Force the UPDATE to fail after the rule INSERT by a trigger, then check nothing persisted.
+  db.exec(`CREATE TRIGGER boom BEFORE UPDATE ON bank_transactions BEGIN SELECT RAISE(ABORT, 'disk full'); END`);
+  assert.throws(() => applyProposal(db, { side: 'out', match: 'הוט מובייל', bucket: 'suppliers_other', counterparty: 'הוט מובייל בעמ' }), /disk full/);
+  assert.equal(db.prepare(`SELECT COUNT(*) n FROM classify_rules`).get().n, 0, 'rule rolled back with the rows');
+  assert.equal(db.prepare(`SELECT bucket_group FROM bank_transactions WHERE id='a1'`).get().bucket_group, 'unclassified');
 });
 
-test('two approvals from two processes both land in rules.json (write lock serialises the read-modify-write)', async (t) => {
-  const { spawnSync } = await import('node:child_process');
+test('approvals from two processes, concurrently with full reclassify runs, lose nothing', async (t) => {
   const dbPath = join(ROOT, 'data', 'test-cla-par.db');
   for (const x of ['', '-wal', '-shm']) rmSync(dbPath + x, { force: true });
-  const rulesPath = join(ROOT, 'data', 'test-rules-par.json');
-  writeFileSync(rulesPath, JSON.stringify({ inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } } }));
-  t.after(() => { rmSync(rulesPath, { force: true }); for (const x of ['', '-wal', '-shm']) rmSync(dbPath + x, { force: true }); });
+  t.after(() => { for (const x of ['', '-wal', '-shm']) rmSync(dbPath + x, { force: true }); });
   const db = openDb(dbPath);
-  for (let i = 0; i < 20; i++) { tx(db, `a${i}`, '2026-07-01', -3000, 'ספק א', 'unclassified', 'unclassified'); tx(db, `b${i}`, '2026-07-02', -4000, 'ספק ב', 'unclassified', 'unclassified'); }
+  for (let i = 0; i < 20; i++) { tx(db, `a${i}`, '2026-07-01', -3000, `ספק א ${i % 5}`, 'unclassified', 'unclassified'); tx(db, `b${i}`, '2026-07-02', -4000, `ספק ב ${i % 5}`, 'unclassified', 'unclassified'); }
   db.close();
-  const worker = (name, match) => `
+  const FILE_RULES = JSON.stringify({ inflows: [], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } }, refundPairs: [], suppliers: [] });
+  const approver = (name) => `
     import { openDb } from ${JSON.stringify(join(ROOT, 'scripts', 'lib', 'db.mjs'))};
     import { applyProposal } from ${JSON.stringify(join(ROOT, 'scripts', 'lib', 'classify-agent.mjs'))};
-    const db = openDb(${JSON.stringify(dbPath)});
-    db.pragma('busy_timeout = 30000'); // the point is serialisation, not speed; a loaded machine must not flake this
-    for (let i = 0; i < 5; i++) applyProposal(db, { side: 'out', match: ${JSON.stringify(match)} + i, bucket: 'suppliers_other', counterparty: ${JSON.stringify(name)} }, ${JSON.stringify(rulesPath)});
+    const db = openDb(${JSON.stringify(dbPath)}); db.pragma('busy_timeout = 30000');
+    for (let i = 0; i < 5; i++) applyProposal(db, { side: 'out', match: ${JSON.stringify(name)} + ' ' + i, bucket: 'rent', counterparty: ${JSON.stringify(name)} + ' ' + i });
+  `;
+  const syncer = `
+    import { openDb } from ${JSON.stringify(join(ROOT, 'scripts', 'lib', 'db.mjs'))};
+    import { classifyAll } from ${JSON.stringify(join(ROOT, 'scripts', 'lib', 'classify.mjs'))};
+    const db = openDb(${JSON.stringify(dbPath)}); db.pragma('busy_timeout = 30000');
+    for (let i = 0; i < 5; i++) classifyAll(db, ${FILE_RULES});
   `;
   const { spawn } = await import('node:child_process');
   const run = (code) => new Promise((res) => { const p = spawn(process.execPath, ['--input-type=module', '-e', code], { stdio: ['ignore', 'ignore', 'pipe'] }); let err = ''; p.stderr.on('data', (d) => { err += d; }); p.on('exit', (c) => res({ c, err })); });
-  for (let round = 0; round < 3; round++) {
-    const [r1, r2] = await Promise.all([run(worker('ספק א', `ספק א ${round} `)), run(worker('ספק ב', `ספק ב ${round} `))]);
-    assert.equal(r1.c, 0, r1.err); assert.equal(r2.c, 0, r2.err);
-    const rules = JSON.parse(readFileSync(rulesPath, 'utf8'));
-    assert.equal(rules.outflows.length, 10 * (round + 1), `round ${round}: no lost update`);
-  }
-  assert.equal(existsSync(rulesPath + '.lock'), false, 'lock released');
-  void spawnSync;
+  const rs = await Promise.all([run(approver('ספק א')), run(approver('ספק ב')), run(syncer)]);
+  for (const r of rs) assert.equal(r.c, 0, r.err);
+  const db2 = openDb(dbPath);
+  assert.equal(db2.prepare(`SELECT COUNT(*) n FROM classify_rules`).get().n, 10, 'every approval kept');
+  assert.equal(db2.prepare(`SELECT COUNT(*) n FROM bank_transactions WHERE bucket='rent'`).get().n, 40, 'a concurrent full reclassify never undid an approval');
+  db2.close();
 });

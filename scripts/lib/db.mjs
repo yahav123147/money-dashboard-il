@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS cardcom_sales (
   product TEXT, product_raw TEXT, product_source TEXT, updated_at TEXT,
   acquirer TEXT, payments INTEGER, first_payment REAL, const_payment REAL);
 CREATE INDEX IF NOT EXISTS idx_cc_date ON cardcom_sales(date);
+CREATE TABLE IF NOT EXISTS classify_rules (
+  side TEXT NOT NULL, match TEXT NOT NULL, bucket TEXT NOT NULL, bucket_group TEXT NOT NULL,
+  counterparty TEXT, created_at TEXT, PRIMARY KEY (side, match));
 `;
 
 export function openDb(path = DB_PATH) {
