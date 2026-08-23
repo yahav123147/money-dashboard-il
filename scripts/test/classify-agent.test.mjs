@@ -136,6 +136,7 @@ test('two approvals from two processes both land in rules.json (write lock seria
     import { openDb } from ${JSON.stringify(join(ROOT, 'scripts', 'lib', 'db.mjs'))};
     import { applyProposal } from ${JSON.stringify(join(ROOT, 'scripts', 'lib', 'classify-agent.mjs'))};
     const db = openDb(${JSON.stringify(dbPath)});
+    db.pragma('busy_timeout = 30000'); // the point is serialisation, not speed; a loaded machine must not flake this
     for (let i = 0; i < 5; i++) applyProposal(db, { side: 'out', match: ${JSON.stringify(match)} + i, bucket: 'suppliers_other', counterparty: ${JSON.stringify(name)} }, ${JSON.stringify(rulesPath)});
   `;
   const { spawn } = await import('node:child_process');
