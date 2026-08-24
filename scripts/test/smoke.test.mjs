@@ -125,6 +125,7 @@ test('demo seed: any real record or customised config blocks the guard; --force 
   mkdirSync(CFG, { recursive: true });
   for (const f of readdirSync(join(ROOT, 'config.defaults'))) if (f.endsWith('.json')) writeFileSync(join(CFG, f), readFileSync(join(ROOT, 'config.defaults', f)));
   const realBefore = Object.fromEntries(readdirSync(join(ROOT, 'config')).filter((f) => f.endsWith('.json')).map((f) => [f, readFileSync(join(ROOT, 'config', f), 'utf8')]));
+  const realReviewBefore = existsSync(join(ROOT, 'data', 'review'));
   t.after(() => rmSync(SCRATCH, { recursive: true, force: true }));
   const db = openDb(DB);
   db.prepare(`INSERT INTO cardcom_sales (deal_id, date, amount) VALUES ('d1', '2026-07-01', 100)`).run(); // only a sale, no bank rows, no rules
@@ -153,5 +154,5 @@ test('demo seed: any real record or customised config blocks the guard; --force 
   assert.deepEqual(db2.prepare('SELECT id, bucket FROM bank_transactions ORDER BY id').all(), before, 'reclassify is a no-op on demo data');
   db2.close();
   for (const [f, txt] of Object.entries(realBefore)) assert.equal(readFileSync(join(ROOT, 'config', f), 'utf8'), txt, `config/${f} untouched`);
-  assert.equal(existsSync(join(ROOT, 'data', 'review')), false, 'nothing written to the real data dir');
+  assert.equal(existsSync(join(ROOT, 'data', 'review')), realReviewBefore, 'the test wrote nothing to the real data dir');
 });
