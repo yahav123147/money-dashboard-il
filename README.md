@@ -18,7 +18,7 @@
 צריך Node 20+.
 
 ```bash
-git clone <this-repo> && cd money-dashboard-il
+git clone https://github.com/yahav123147/money-dashboard-il.git && cd money-dashboard-il
 npm install
 npm run dev
 ```
