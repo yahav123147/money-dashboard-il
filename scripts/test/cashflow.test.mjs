@@ -66,3 +66,30 @@ test('computeCashflow projects an every-other-month item only on its months', as
   const hits = cf.days.filter((d) => d.items.some((it) => it.name === 'מע"מ')).map((d) => d.date);
   assert.deepEqual(hits, ['2026-09-15']);
 });
+
+test('per-bank view: balances and projected items split by bank, and they sum to the totals', async (t) => {
+  const { computeBanks, computeCashflow } = await import('../../lib/queries.js');
+  const db = tmpDb(t, 'test-banks.db');
+  db.prepare(`INSERT INTO accounts (id, provider, number, type, name, currency, balance) VALUES ('a','leumi','1','CHECKING','עו"ש','ILS', 100000)`).run();
+  db.prepare(`INSERT INTO accounts (id, provider, number, type, name, currency, balance) VALUES ('b','hapoalim','2','CHECKING','עו"ש','ILS', 20000)`).run();
+  const today = '2026-08-10';
+  const tx2 = (id, acct, prov, date, amount, cp, bucket, group) => upsertTx(db, {
+    id, account_id: acct, account_number: acct, account_type: 'CHECKING', provider: prov, date, month: date.slice(0, 7),
+    amount, currency: 'ILS', counterparty: cp, raw_desc: cp, status: 'completed', side: amount > 0 ? 'in' : 'out',
+    bucket, bucket_group: group, raw_json: '{}',
+  });
+  // a rent paid from the main bank in 4 past months → learned recurring, attributed to leumi
+  for (const m of ['04', '05', '06', '07']) tx2(`r${m}`, 'a', 'leumi', `2026-${m}-25`, -15000, 'שכירות', 'rent', 'expense');
+  // a future actual row in the second bank
+  tx2('f1', 'b', 'hapoalim', '2026-08-20', -5000, 'ספק', 'suppliers_other', 'expense');
+  const banks = computeBanks(db, today, 30);
+  const byId = Object.fromEntries(banks.banks.map((b) => [b.provider, b]));
+  assert.equal(byId.leumi.balance, 100000);
+  assert.equal(byId.hapoalim.balance, 20000);
+  assert.equal(banks.total, 120000, 'the tiles sum to the headline balance');
+  assert.equal(byId.hapoalim.projected, 15000, 'only its own future row moves the second bank');
+  assert.ok(byId.leumi.projected < 100000, 'the learned rent belongs to the bank that has been paying it');
+  const cf = computeCashflow(db, today, 30);
+  assert.equal(banks.totalProjected, cf.endProjected, 'and to the headline projection');
+  assert.equal(Object.values(banks.banks).reduce((a, b) => a + b.projected, 0), cf.endProjected);
+});

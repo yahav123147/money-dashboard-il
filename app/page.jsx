@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useDashboard } from '@/components/useDashboard';
 import Shell from '@/components/Shell';
 import Briefing, { StatTiles } from '@/components/Briefing';
+import BankTiles from '@/components/BankTiles';
 import Todo from '@/components/Todo';
 import SalesWeek from '@/components/SalesWeek';
 import Sales from '@/components/Sales';
@@ -18,6 +19,7 @@ export default function StatusPage() {
   return (
     <Shell tab="status" title="דוח מצב" dash={dash}>
       <StatTiles b={b} />
+      <BankTiles />
       <Briefing b={b} />
       {b?.salesWeek?.length ? (
         <div className="grid-2">

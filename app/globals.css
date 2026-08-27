@@ -979,3 +979,11 @@ footer::before { content: '⸻'; display: block; color: var(--gold); opacity: 0.
 @media (max-width: 600px) { .ask-fab-label { display: none; } .ask-fab { padding: 10px; } }
 
 .cl-select { padding: 4px 10px; border-radius: 8px; font-size: 0.8rem; flex: 0 1 200px; }
+
+/* one tile per bank, under the headline numbers */
+.bank-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 16px; }
+.stat.bank .stat-v { font-size: 1.5rem; }
+.bank-item { display: block; font-size: 0.74rem; color: var(--ink-3); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line-soft); line-height: 1.5; }
+.bank-item.quiet { color: var(--ink-3); font-weight: 300; }
+.stat-s .pos { color: var(--pos); }
+.stat-s .neg { color: var(--neg); }
