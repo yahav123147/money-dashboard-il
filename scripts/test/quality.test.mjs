@@ -143,3 +143,12 @@ test('computeQuality ignores financy_refresh: a refresh is not a sync', async (t
   const q = computeQuality(db, '2026-08-10', { recurring: { items: [], ignore: [] } });
   assert.ok(q.findings.some((f) => f.key === 'bank_stale'), 'last SUCCESSFUL full sync is 21 days old');
 });
+
+test('checkSecondAccountStale: only when the setting is on AND a second bank is connected', () => {
+  assert.equal(Q.checkSecondAccountStale({ secondAccountBucket: 'internal_second', providers: ['leumi'], transfersIls: 500000 }).length, 0, 'one bank: the setting is still true');
+  assert.equal(Q.checkSecondAccountStale({ secondAccountBucket: null, providers: ['leumi', 'hapoalim'] }).length, 0, 'no setting, nothing to fix');
+  const out = Q.checkSecondAccountStale({ secondAccountBucket: 'internal_second', providers: ['leumi', 'hapoalim'], transfersIls: 576435 });
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].suggested, { setting: 'secondAccountBucket', value: null });
+  assert.match(out[0].text, /576,435/);
+});

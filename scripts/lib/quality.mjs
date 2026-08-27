@@ -217,6 +217,22 @@ export function checkFreshness({ today, bankLastSync = null, cardcomEnabled = fa
   return out;
 }
 
+// The "second account" setting says: money moved there is spent where the
+// dashboard cannot see it, so the tax estimate widens. Once that account is
+// actually connected the setting is stale, and the estimate keeps a blind
+// spot over data it now has.
+export function checkSecondAccountStale({ secondAccountBucket = null, providers = [], transfersIls = 0 }) {
+  if (!secondAccountBucket || providers.length < 2) return [];
+  return [{
+    key: 'second_account_stale',
+    severity: 'warn', area: 'tax',
+    title: 'הגדרת "חשבון שני" כבר לא נכונה',
+    text: `מחוברים ${providers.length} בנקים (${providers.join(', ')}), אבל ההגדרה עדיין אומרת שהכסף שמועבר לחשבון השני נעלם מהעין${transfersIls ? ` (${r(transfersIls).toLocaleString('he-IL')} ₪ השנה)` : ''}. הערכת המס שומרת שוליים על כסף שהיא כבר רואה.`,
+    action: 'הגדרות ← secondAccountBucket = null, אחרי שווידאת שההיסטוריה של החשבון השני נמשכה (npm run sync -- --from=...)',
+    suggested: { setting: 'secondAccountBucket', value: null },
+  }];
+}
+
 // Roll the findings into one verdict and a forecast-confidence label.
 export function summarizeQuality(findings) {
   const fix = findings.filter((f) => f.severity === 'fix').length;
