@@ -1,7 +1,7 @@
 {
   "_": "ערכי בסיס. האונבורדינג ממלא אותם — אל תערוך ידנית אלא אם אתה יודע מה אתה עושה.",
   "vatRate": 1.18,
-  "advanceRatePct": null,
+  "advanceRatePct": 5,
   "_advanceRatePct": "שיעור המקדמה שמס הכנסה קבע לך. נשאל באונבורדינג.",
   "usdToIls": null,
   "_usdToIls": "רק אם יש חשבון או כרטיס במטבע זר.",
@@ -14,9 +14,9 @@
   "secondAccountBucket": null,
   "_secondAccountBucket": "שם באקט של הוצאות שיוצאות מחשבון בנק שני שאינו מחובר לדשבורד. null = אין חשבון כזה. אם יש, הוסף חוק ב-rules.json שמסווג אליו, אחרת הגבול התחתון של הערכת המס מתעלם מהכסף הזה.",
   "secondAccountLabel": "הוצאות מחשבון בנק שני",
-  "entityType": null,
+  "entityType": "murshe",
   "_entityType": "patur | murshe | company — נכתב ע\"י /setup. קובע את מנוע המס.",
-  "creditPoints": null,
+  "creditPoints": 2.25,
   "_creditPoints": "נקודות זיכוי אישיות. null = מינימום תושב 2.25. נשאל ב-/setup.",
   "vatPeriodMonths": null,
   "_vatPeriodMonths": "1 = דיווח מע\"מ חודשי, 2 = דו-חודשי. null = לפי המחזור: מעל vatMonthlyThreshold חודשי, אחרת דו-חודשי. חברה ועוסק מורשה בלבד. /setup שואל.",
@@ -26,15 +26,15 @@
   "_cashDipWarnIls": "יתרת עו\"ש חזויה שמתחתיה התחזית מציגה אזהרה ודגל.",
   "advanceDueDay": 15,
   "_advanceDueDay": "היום בחודש שבו מקדמת מס ההכנסה יורדת בפועל. 15 לפי החוק; בהוראת קבע זה לרוב כמה ימים אחרי. בדוק בבנק.",
-  "agentsSendDataToClaude": false,
+  "agentsSendDataToClaude": true,
   "_agentsSendDataToClaude": "true = אישרת שהסוכנים שולחים תמצית של הנתונים ל-Claude דרך מנוי Claude Code שלך (ראה agentsConsentVersion למה כלול). false = הסוכנים מסרבים לרוץ. npm run review -- --yes מאשר פעם אחת.",
   "agentsAllowedPlans": [
     "max",
     "pro"
   ],
   "_agentsAllowedPlans": "אילו מנויי claude.ai מותרים להרצת הסוכנים. ברירת מחדל max/pro. Team/Enterprise יכולים לקבל הגדרות מנוהלות מהשרת (ניתוב, אימות) שאי אפשר לסרוק מקומית, ולכן לא ברשימה; הוסף ביודעין. [\"max\"] = רק Max.",
-  "agentsAllowInteractive": false,
+  "agentsAllowInteractive": true,
   "_agentsAllowInteractive": "true = מתיר ל-/review ו-/classify לרוץ מתוך סשן Claude Code פתוח. הסקריפט לא יכול לאמת על איזה ספק הסשן עצמו רץ (מפתח API שמוסתר מתת-תהליכים), ולכן ברירת המחדל false; המסלול הנאכף הוא npm run review / npm run classify.",
-  "agentsConsentVersion": 0,
+  "agentsConsentVersion": 2,
   "_agentsConsentVersion": "גרסת ההסכמה שאושרה. 1 = /review ו-/classify. 2 = כולל הצ'אט \"שאל את הנתונים\" (יתרות, שמות חשבונות ומוצרים, השאלות שלך, תוצאות שאילתות). npm run review -- --yes מעדכן לגרסה הנוכחית."
 }

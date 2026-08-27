@@ -27,6 +27,13 @@ const settings = JSON.parse(readFileSync(join(ROOT, 'config', 'settings.json'), 
 
 const NO_REFRESH = process.argv.includes('--no-refresh');
 const LOOKBACK_DAYS = 35;
+// --from YYYY-MM-DD pulls a longer window than the nightly 35 days: what you
+// run once after connecting a new bank or card, to backfill its history.
+const FROM_ARG = (process.argv.find((a) => a.startsWith('--from=')) || '').split('=')[1] || null;
+if (FROM_ARG && !/^\d{4}-\d{2}-\d{2}$/.test(FROM_ARG)) {
+  console.error('--from חייב להיות בפורמט YYYY-MM-DD');
+  process.exit(1);
+}
 const REFRESH_WAIT_MS = 120_000; // max wait for providers to leave FETCHING
 const POLL_MS = 10_000;
 
@@ -186,7 +193,9 @@ function syncAccounts(db, env, today) {
     for (const acc of accounts) {
       const secValue = acc.accountType === 'SECURITIES' ? securitiesValue(acc) : null;
       const picked = pickBalance(acc);
-      const real = (c) => (c && c !== 'XXX' ? c : null);
+      // Hapoalim returns "ILY" for shekel accounts. It is not an ISO code, and
+      // every ILS query in the dashboard would silently skip the account.
+      const real = (c) => (c && c !== 'XXX' ? (c === 'ILY' ? 'ILS' : c) : null);
       const currency =
         real(acc.currency) ||
         real(picked?.balanceAmount?.currency) ||
@@ -271,7 +280,7 @@ async function main() {
   try {
     const refreshNote = await maybeRefresh(db, env);
     const { accountCount, snapRows } = syncAccounts(db, env, today);
-    const from = daysAgo(today, LOOKBACK_DAYS);
+    const from = FROM_ARG || daysAgo(today, LOOKBACK_DAYS);
     const raws = fetchTransactions(env, from);
     const { ids: txIds, pending, classified } = applyTransactions(db, raws);
     const note = `refresh=${refreshNote}; accounts=${accountCount}; snapshots=${snapRows}; tx(from ${from})=${txIds.length}; pendingDrop=${pending.stale}stale+${pending.dupes}dup; classified=${classified}`;

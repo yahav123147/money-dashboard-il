@@ -606,3 +606,19 @@ test('saveProposals records the run in the same transaction; legacy proposals.js
   assert.deepEqual(reconcileProposals(db), { undone: 0, aligned: 0 }, 'the upgrade repair is idempotent');
   assert.equal(importLegacyProposals(db, f), 0, 'file was renamed; second call is a no-op');
 });
+
+test('a rule scoped to one account does not classify the same words in another bank', async (t) => {
+  const { classifyAll } = await import('../lib/classify.mjs');
+  const db = tmpDb(t, 'test-cla-acct.db');
+  const row = (id, acct, amount, cp) => upsertTx(db, {
+    id, account_id: acct, account_number: acct, account_type: 'CHECKING', provider: 't', date: '2026-07-01', month: '2026-07',
+    amount, currency: 'ILS', counterparty: cp, raw_desc: cp, status: 'completed', side: amount > 0 ? 'in' : 'out',
+    bucket: 'unclassified', bucket_group: 'unclassified', raw_json: '{}',
+  });
+  row('a1', 'IL99-570571', 50000, 'החברה שלי');   // second bank: an internal transfer
+  row('b1', 'IL11-158200', 50000, 'החברה שלי');   // main bank: must stay revenue
+  const rules = { inflows: [{ match: ['החברה שלי'], bucket: 'internal_second', group: 'below_line', account: '570571' }], inflowDefault: { bucket: 'direct', group: 'revenue' }, outflows: [], outflowDefaults: { largeThreshold: 2000, large: { bucket: 'unclassified', group: 'unclassified' }, small: { bucket: 'suppliers_other', group: 'expense' } }, refundPairs: [], suppliers: [] };
+  classifyAll(db, rules);
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='a1'`).get().bucket, 'internal_second');
+  assert.equal(db.prepare(`SELECT bucket FROM bank_transactions WHERE id='b1'`).get().bucket, 'direct', 'the same words in another account keep the default');
+});

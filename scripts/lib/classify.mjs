@@ -73,7 +73,11 @@ export function parseFinancyTx(raw) {
   };
 }
 
-function matchRule(rule, text, desc, rules) {
+function matchRule(rule, text, desc, rules, accountNumber = '') {
+  // A rule may be scoped to one account: "in the second bank account, a credit
+  // from our own company is an internal transfer, not revenue". Without the
+  // scope the same words in another bank would be classified wrongly.
+  if (rule.account && !String(accountNumber || '').includes(rule.account)) return false;
   const haystack = rule.field === 'desc' ? desc : text;
   if (rule.matchAll) return rule.matchAll.every((s) => haystack.includes(s));
   if (rule.matchRef) return (rules[rule.matchRef] || []).some((s) => haystack.includes(s));
@@ -83,6 +87,7 @@ function matchRule(rule, text, desc, rules) {
 // Classify one row (pre refund-pairing). Row needs: account_type, currency,
 // amount, counterparty, raw_desc.
 export function classifyRow(row, rules, expRules = loadExpenseRules()) {
+  const acct = row.account_number || '';
   if (row.account_type === 'SECURITIES') return { bucket: 'securities_dup', group: 'internal' };
   if (row.account_type === 'CARD') {
     const { sub, channel } = subBucketFor(row.counterparty, expRules);
@@ -96,12 +101,12 @@ export function classifyRow(row, rules, expRules = loadExpenseRules()) {
   const desc = row.raw_desc;
   if (row.amount >= 0) {
     for (const rule of rules.inflows) {
-      if (matchRule(rule, text, desc, rules)) return { bucket: rule.bucket, group: rule.group, explicit: rule.source === 'classify' };
+      if (matchRule(rule, text, desc, rules, acct)) return { bucket: rule.bucket, group: rule.group, explicit: rule.source === 'classify' };
     }
     return { ...rules.inflowDefault };
   }
   for (const rule of rules.outflows) {
-    if (matchRule(rule, text, desc, rules)) return { bucket: rule.bucket, group: rule.group, explicit: rule.source === 'classify' };
+    if (matchRule(rule, text, desc, rules, acct)) return { bucket: rule.bucket, group: rule.group, explicit: rule.source === 'classify' };
   }
   const d = rules.outflowDefaults;
   return Math.abs(row.amount) >= d.largeThreshold ? { ...d.large } : { ...d.small };
@@ -141,7 +146,7 @@ export function classifyAll(db, fileRules = loadRules()) {
 // approval or an undo re-runs the whole classification in its own tx).
 export function classifyAllLocked(db, rules) {
   const rows = db.prepare(`
-    SELECT id, account_type, amount, currency, counterparty, raw_desc, date
+    SELECT id, account_type, account_number, amount, currency, counterparty, raw_desc, date
     FROM bank_transactions
   `).all();
 
