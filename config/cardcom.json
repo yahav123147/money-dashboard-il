@@ -1,6 +1,6 @@
 {
   "_": "חיבור קארדקום (אופציונלי). /setup ממלא. enabled=false משאיר את פאנל המכירות מוסתר.",
-  "enabled": true,
+  "enabled": false,
   "productFieldId": 24,
   "_productFieldId": "מספר השדה המותאם (CustomField) בעסקת קארדקום שמכיל את שם המוצר. 24 הוא ברירת המחדל של דפי סליקה רבים; בדוק בהגדרות הטרמינל שלך.",
   "amountNames": {},
@@ -10,7 +10,7 @@
     "mode": "daily",
     "lagDays": 1,
     "windowDays": 4,
-    "feePct": 1.2,
+    "feePct": 0,
     "tolerancePct": 2,
     "dayOfMonth": null,
     "keywords": [
